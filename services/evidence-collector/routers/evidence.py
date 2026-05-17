@@ -139,3 +139,71 @@ async def upload_evidence(
         "status": artifact.status,
         "uploaded_at": artifact.uploaded_at.isoformat() if artifact.uploaded_at else None
     }
+
+@router.post("/verify")
+async def verify_evidence(
+    artifact_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    # Create a temporary path in shared volume
+    temp_filename = f"verify_{uuid.uuid4()}.bin"
+    temp_path = os.path.join(STORAGE_BASE, temp_filename)
+    
+    file_size = 0
+    try:
+        with open(temp_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                file_size += len(chunk)
+                
+        # Import clients
+        from grpc_clients.hash_sign_client import recompute_hash, verify_signature
+        from grpc_clients.ledger_client import get_proof_by_artifact, validate_ledger_chain
+        
+        # 1. Validate Ledger
+        lv_success, is_valid_chain, lv_error = validate_ledger_chain(timeout=15)
+        if not lv_success:
+            raise HTTPException(status_code=503, detail=f"Ledger validation check failed: {lv_error}")
+        if not is_valid_chain:
+            return {"status": "LEDGER_CORRUPTED", "message": "The immutable ledger chain is corrupted."}
+            
+        # 2. Get original proof
+        gp_success, proof_data, gp_error = get_proof_by_artifact(artifact_id, timeout=15)
+        if not gp_success:
+            raise HTTPException(status_code=404, detail=f"Failed to fetch proof: {gp_error}")
+            
+        orig_hash = proof_data["hash_value"]
+        orig_sig = proof_data["signature_value"]
+        
+        # 3. Verify Signature
+        vs_success, is_sig_valid, vs_error = verify_signature(artifact_id, orig_hash, orig_sig, timeout=15)
+        if not vs_success:
+            raise HTTPException(status_code=503, detail=f"Signature verification failed: {vs_error}")
+        if not is_sig_valid:
+            return {"status": "INVALID_SIGNATURE", "message": "The cryptographic signature of the original hash is invalid."}
+            
+        # 4. Recompute Hash
+        rh_success, current_hash, rh_error = recompute_hash(
+            artifact_id=artifact_id,
+            case_id="VERIFY",
+            file_path=temp_path,
+            file_name=file.filename,
+            file_size=file_size,
+            timeout=15
+        )
+        if not rh_success:
+            raise HTTPException(status_code=503, detail=f"Hash recomputation failed: {rh_error}")
+            
+        # 5. Compare Hashes
+        if current_hash != orig_hash:
+            return {"status": "TAMPERED", "message": "The artifact hash does not match the original ledger record."}
+            
+        return {"status": "VALID", "message": "The artifact is intact and cryptographically verified."}
+        
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+

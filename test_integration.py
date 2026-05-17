@@ -109,6 +109,28 @@ def verify_failure_rollback():
     else:
         print(f"Wait, got {response.status_code}. If 201, the system isn't broken yet! Break it first.")
 
+def test_verification(artifact_id):
+    print(f"\n=== Testing Verification for {artifact_id} ===")
+    
+    # Use the same file to get a VALID result
+    test_content = b"This is a test forensic evidence file content."
+    files = {"file": ("test_evidence.txt", test_content, "text/plain")}
+    data = {"artifact_id": artifact_id}
+    
+    print("Testing VALID artifact...")
+    response = requests.post(f"{EVIDENCE_URL.replace('/evidence', '/verify')}", files=files, data=data)
+    print(response.json())
+    
+    # Use a tampered file
+    test_content = b"This is a test forensic evidence file content. TAMPERED!"
+    files = {"file": ("test_evidence.txt", test_content, "text/plain")}
+    data = {"artifact_id": artifact_id}
+    
+    print("\nTesting TAMPERED artifact...")
+    response = requests.post(f"{EVIDENCE_URL.replace('/evidence', '/verify')}", files=files, data=data)
+    print(response.json())
+
 if __name__ == "__main__":
-    verify_success_ingestion()
-    verify_failure_rollback()
+    aid = verify_success_ingestion()
+    if aid:
+        test_verification(aid)
