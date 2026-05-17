@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package forensicchain.hashsign;
+
+service HashSignService {
+  rpc ComputeAndSignHash (ArtifactHashRequest)    returns (IntegrityProofResponse);
+  rpc RecomputeHash      (ArtifactHashRequest)    returns (HashResponse);
+  rpc VerifySignature    (SignatureVerifyRequest)  returns (SignatureVerifyResponse);
+}
+
+// Request: Evidence Collector → Hash & Sign
+// File is read from shared volume using file_path.
+// No binary bytes transferred.
+message ArtifactHashRequest {
+  string artifact_id     = 1;
+  string case_id         = 2;
+  string file_path       = 3;  // absolute path inside container, e.g. /evidence-storage/{artifact_id}/original.bin
+  string file_name       = 4;
+  int64  file_size       = 5;  // bytes
+  string hash_algorithm  = 6;  // always "SHA-256" in MVP
+}
+
+// Response: hash + digital signature
+message IntegrityProofResponse {
+  string artifact_id        = 1;
+  string case_id            = 2;
+  string hash_algorithm     = 3;
+  string hash_value         = 4;  // hex-encoded SHA-256
+  string signature_algorithm = 5; // "RSA-SHA256"
+  string signature_value    = 6;  // base64-encoded signature
+  string signer_id          = 7;  // "hash-sign-service"
+  string signed_at          = 8;  // ISO 8601 UTC
+  bool   success            = 9;
+  string error_message      = 10;
+}
+
+// Response: hash only (used during verification)
+message HashResponse {
+  string artifact_id     = 1;
+  string hash_algorithm  = 2;
+  string hash_value      = 3;
+  bool   success         = 4;
+  string error_message   = 5;
+}
+
+// Request: verify an existing signature
+message SignatureVerifyRequest {
+  string artifact_id        = 1;
+  string hash_value         = 2;
+  string signature_value    = 3;
+  string signature_algorithm = 4;
+}
+
+// Response: signature validity
+message SignatureVerifyResponse {
+  string artifact_id    = 1;
+  bool   signature_valid = 2;
+  bool   success        = 3;
+  string error_message  = 4;
+}
