@@ -113,10 +113,31 @@ async def upload_evidence(
 
     # 6. Finalize Artifact
     try:
+        from datetime import datetime, timezone
+        from db.models import OutboxEvent
+        
         artifact.hash_value = hash_value
         artifact.signature_value = signature_value
         artifact.ledger_record_id = uuid.UUID(ledger_record_id)
         artifact.status = "INGESTED"
+        
+        # Outbox Pattern: Insert event in the SAME transaction
+        payload = {
+            "artifact_id": str(artifact.artifact_id),
+            "case_id": artifact.case_id,
+            "hash_value": artifact.hash_value,
+            "ledger_record_id": str(artifact.ledger_record_id),
+            "ingestion_timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        outbox_event = OutboxEvent(
+            aggregate_id=str(artifact.artifact_id),
+            event_type="EVIDENCE_INGESTED",
+            payload_json=payload,
+            status="PENDING"
+        )
+        db.add(outbox_event)
+        
         db.commit()
         db.refresh(artifact)
     except Exception as e:
@@ -125,7 +146,7 @@ async def upload_evidence(
         db.commit()
         if os.path.exists(artifact_dir):
             shutil.rmtree(artifact_dir)
-        raise HTTPException(status_code=500, detail=f"Failed to finalize artifact: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to finalize artifact and outbox event: {str(e)}")
 
     # Return full response
     return {

@@ -94,3 +94,28 @@ services:
     depends_on:
       ledger-db:
         condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  evidence-outbox-worker:
+    build: ./services/evidence-collector
+    container_name: evidence-outbox-worker
+    command: python worker.py
+    env_file: .env
+    networks: [forensicchain_net]
+    depends_on:
+      evidence-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
