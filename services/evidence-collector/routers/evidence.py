@@ -53,7 +53,7 @@ async def upload_evidence(
             shutil.rmtree(artifact_dir)
         raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
 
-    # 4. Insert into DB (ONLY occurs after file is completely written)
+    # 4. Initial DB Insert (PENDING)
     try:
         artifact = Artifact(
             artifact_id=artifact_id,
@@ -66,24 +66,76 @@ async def upload_evidence(
             uploaded_by=actor_id,
             status="PENDING",
             correlation_id=corr_id
-            # Hash, signature, and ledger info are purposely left NULL here.
         )
         db.add(artifact)
         db.commit()
         db.refresh(artifact)
     except Exception as e:
         db.rollback()
-        # If DB insert fails, cleanup file and directory
         if os.path.exists(artifact_dir):
             shutil.rmtree(artifact_dir)
-        raise HTTPException(status_code=500, detail=f"Failed to save artifact metadata: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save initial artifact metadata: {str(e)}")
 
-    # Return skeleton response (hash/ledger fields empty for now)
+    # 5. gRPC Integrations
+    from grpc_clients.hash_sign_client import compute_and_sign
+    from grpc_clients.ledger_client import append_proof
+
+    # Call Hash & Sign
+    hs_success, hash_value, signature_value, hs_error = compute_and_sign(
+        artifact_id=str(artifact_id),
+        case_id=case_id,
+        file_path=storage_path,
+        file_name=file.filename,
+        file_size=file_size,
+        timeout=15
+    )
+    if not hs_success:
+        db.delete(artifact)
+        db.commit()
+        if os.path.exists(artifact_dir):
+            shutil.rmtree(artifact_dir)
+        raise HTTPException(status_code=503, detail=f"Hash & Sign failed: {hs_error}")
+
+    # Call Ledger
+    l_success, ledger_record_id, l_error = append_proof(
+        artifact_id=str(artifact_id),
+        case_id=case_id,
+        hash_value=hash_value,
+        signature_value=signature_value,
+        timeout=15
+    )
+    if not l_success:
+        db.delete(artifact)
+        db.commit()
+        if os.path.exists(artifact_dir):
+            shutil.rmtree(artifact_dir)
+        raise HTTPException(status_code=503, detail=f"Ledger append failed: {l_error}")
+
+    # 6. Finalize Artifact
+    try:
+        artifact.hash_value = hash_value
+        artifact.signature_value = signature_value
+        artifact.ledger_record_id = uuid.UUID(ledger_record_id)
+        artifact.status = "INGESTED"
+        db.commit()
+        db.refresh(artifact)
+    except Exception as e:
+        db.rollback()
+        db.delete(artifact)
+        db.commit()
+        if os.path.exists(artifact_dir):
+            shutil.rmtree(artifact_dir)
+        raise HTTPException(status_code=500, detail=f"Failed to finalize artifact: {str(e)}")
+
+    # Return full response
     return {
         "artifact_id": str(artifact.artifact_id),
         "case_id": artifact.case_id,
         "file_name": artifact.file_name,
         "file_size": artifact.file_size,
+        "hash_value": artifact.hash_value,
+        "signature_value": artifact.signature_value,
+        "ledger_record_id": str(artifact.ledger_record_id),
         "status": artifact.status,
         "uploaded_at": artifact.uploaded_at.isoformat() if artifact.uploaded_at else None
     }
