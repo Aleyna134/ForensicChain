@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+keys/private_key.pem
+.vscode/
+.idea/
