@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 import uvicorn
-from routers import evidence
+from routers import evidence, internal
 from db.database import engine, Base
 
 # Create the initial tables based on SQLAlchemy models
@@ -10,6 +10,7 @@ app = FastAPI(title="ForensicChain - Evidence Collector")
 
 # Include the evidence routes
 app.include_router(evidence.router)
+app.include_router(internal.router)
 
 @app.get("/health")
 def health():

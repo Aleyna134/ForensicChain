@@ -122,18 +122,35 @@ async def upload_evidence(
         artifact.status = "INGESTED"
         
         # Outbox Pattern: Insert event in the SAME transaction
-        payload = {
+        event_id = str(uuid.uuid4())
+        timestamp_iso = datetime.now(timezone.utc).isoformat()
+        
+        envelope = {
+            "event_id": event_id,
+            "event_type": "EvidenceIngested",
+            "routing_key": "forensicchain.evidence.ingested",
             "artifact_id": str(artifact.artifact_id),
             "case_id": artifact.case_id,
-            "hash_value": artifact.hash_value,
-            "ledger_record_id": str(artifact.ledger_record_id),
-            "ingestion_timestamp": datetime.now(timezone.utc).isoformat()
+            "actor_id": actor_id,
+            "actor_role": actor_role,
+            "timestamp": timestamp_iso,
+            "correlation_id": str(corr_id),
+            "reason": "Initial evidence ingestion",
+            "payload": {
+                "file_name": artifact.file_name,
+                "file_size": artifact.file_size,
+                "artifact_type": artifact.artifact_type,
+                "hash_algorithm": artifact.hash_algorithm,
+                "hash_value": artifact.hash_value,
+                "ledger_record_id": str(artifact.ledger_record_id)
+            }
         }
         
         outbox_event = OutboxEvent(
+            event_id=uuid.UUID(event_id),
             aggregate_id=str(artifact.artifact_id),
-            event_type="EVIDENCE_INGESTED",
-            payload_json=payload,
+            event_type="EvidenceIngested",
+            payload_json=envelope,
             status="PENDING"
         )
         db.add(outbox_event)
@@ -227,4 +244,34 @@ async def verify_evidence(
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+@router.get("/evidence/{artifact_id}")
+async def get_evidence(
+    artifact_id: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        artifact_uuid = uuid.UUID(artifact_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid artifact ID format")
+
+    artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_uuid).first()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    from datetime import timezone
+    uploaded_at = artifact.uploaded_at
+    if uploaded_at and uploaded_at.tzinfo is None:
+        uploaded_at = uploaded_at.replace(tzinfo=timezone.utc)
+
+    return {
+        "artifact_id": str(artifact.artifact_id),
+        "case_id": artifact.case_id,
+        "status": artifact.status,
+        "hash_value": artifact.hash_value,
+        "signature_value": artifact.signature_value,
+        "ledger_record_id": str(artifact.ledger_record_id) if artifact.ledger_record_id else None,
+        "uploaded_at": uploaded_at.isoformat() if uploaded_at else None
+    }
+
 
