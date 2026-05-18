@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package forensicchain.ledger;
+
+service LedgerService {
+  rpc AppendProofRecord        (ProofRecordRequest)        returns (ProofRecordResponse);
+  rpc AppendVerificationRecord (VerificationRecordRequest) returns (ProofRecordResponse);
+  rpc GetProofByArtifactId     (ArtifactProofRequest)      returns (ArtifactIntegrityProofResponse);
+  rpc ValidateLedgerChain      (ValidateLedgerRequest)     returns (ValidateLedgerResponse);
+}
+
+// Append a new integrity proof record (called after hash + sign)
+message ProofRecordRequest {
+  string artifact_id        = 1;
+  string case_id            = 2;
+  string record_type        = 3;  // "EVIDENCE_PROOF_CREATED"
+  string hash_algorithm     = 4;
+  string hash_value         = 5;
+  string signature_algorithm = 6;
+  string signature_value    = 7;
+  string signer_id          = 8;
+  string created_at         = 9;  // ISO 8601 UTC
+}
+
+// Append a verification result record
+message VerificationRecordRequest {
+  string artifact_id          = 1;
+  string case_id              = 2;
+  string record_type          = 3;  // "VERIFICATION_RESULT_RECORDED"
+  string verification_result  = 4;  // "VALID" or "TAMPERED"
+  string original_hash        = 5;
+  string current_hash         = 6;
+  string verified_by          = 7;  // actor_id from JWT
+  string verified_at          = 8;  // ISO 8601 UTC
+}
+
+// Retrieve proof record for an artifact
+message ArtifactProofRequest {
+  string artifact_id = 1;
+}
+
+// Response specifically for GetProofByArtifactId.
+// Returns the original hash and signature so Evidence Collector
+// can perform full verification (hash comparison + VerifySignature).
+message ArtifactIntegrityProofResponse {
+  string record_id           = 1;
+  string artifact_id         = 2;
+  string case_id             = 3;
+  string hash_algorithm      = 4;
+  string hash_value          = 5;  // original artifact SHA-256 hash
+  string signature_algorithm = 6;
+  string signature_value     = 7;  // original RSA signature (base64)
+  string signer_id           = 8;
+  string record_hash         = 9;  // ledger chain record hash
+  bool   success             = 10;
+  string error_message       = 11;
+}
+
+// Ledger record response (used by AppendProofRecord and AppendVerificationRecord)
+message ProofRecordResponse {
+  string record_id           = 1;  // UUID v4
+  string artifact_id         = 2;
+  string record_type         = 3;
+  string payload_hash        = 4;  // SHA-256 of record content
+  string previous_record_hash = 5;
+  string record_hash         = 6;  // SHA-256(payload_hash + previous_record_hash)
+  string created_at          = 7;
+  bool   success             = 8;
+  string error_message       = 9;
+}
+
+// Validate full ledger chain integrity
+message ValidateLedgerRequest {
+  bool full_validation = 1;  // true = check all records
+}
+
+message ValidateLedgerResponse {
+  bool   chain_valid      = 1;
+  int32  checked_records  = 2;
+  string error_message    = 3;
+}

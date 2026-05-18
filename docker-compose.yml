@@ -1,0 +1,121 @@
+version: "3.9"
+
+volumes:
+  evidence_storage:
+  evidence_db_data:
+  ledger_db_data:
+
+networks:
+  forensicchain_net:
+    driver: bridge
+
+services:
+
+  # ── Databases ──────────────────────────────────────────────────────
+
+  evidence-db:
+    image: postgres:16-alpine
+    container_name: evidence-db
+    environment:
+      POSTGRES_DB: evidence_db
+      POSTGRES_USER: ${POSTGRES_USER:-forensic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forensic_pass}
+    volumes:
+      - evidence_db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forensic} -d evidence_db"]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+  ledger-db:
+    image: postgres:16-alpine
+    container_name: ledger-db
+    environment:
+      POSTGRES_DB: ledger_db
+      POSTGRES_USER: ${POSTGRES_USER:-forensic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forensic_pass}
+    volumes:
+      - ledger_db_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forensic} -d ledger_db"]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+  # ── Services ────────────────────────────────────────────────────────
+
+  evidence-service:
+    build: ./services/evidence-collector
+    container_name: evidence-service
+    env_file: .env
+    volumes:
+      - evidence_storage:/evidence-storage
+    ports:
+      - "8001:8001"
+    networks: [forensicchain_net]
+    depends_on:
+      evidence-db:
+        condition: service_healthy
+      hash-sign-service:
+        condition: service_started
+      ledger-service:
+        condition: service_started
+    # Wait-for-it or internal retry logic is ideal, but for now we rely on service_started 
+    # and the app's internal DB retry logic if needed. SQLAlchemy pool_pre_ping handles DB disconnects.
+    # The gRPC calls will fail naturally if those services aren't fully up yet.
+
+  hash-sign-service:
+    build: ./services/hash-sign
+    container_name: hash-sign-service
+    env_file: .env
+    volumes:
+      - evidence_storage:/evidence-storage:ro
+      - ./keys:/keys:ro
+    ports:
+      - "50051:50051"
+      - "8002:8002"
+    networks: [forensicchain_net]
+
+  ledger-service:
+    build: ./services/immutable-ledger
+    container_name: ledger-service
+    env_file: .env
+    ports:
+      - "50052:50052"
+      - "8003:8003"
+    networks: [forensicchain_net]
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  evidence-outbox-worker:
+    build: ./services/evidence-collector
+    container_name: evidence-outbox-worker
+    command: python worker.py
+    env_file: .env
+    networks: [forensicchain_net]
+    depends_on:
+      evidence-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
