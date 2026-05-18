@@ -1,160 +1,106 @@
-import os
-import time
+import asyncio
 import json
-import pika
-from datetime import datetime, timezone, timedelta
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-from db.database import get_db, SessionLocal
-from db.models import OutboxEvent
 import logging
+import os
+from datetime import datetime, timezone
+
+import aio_pika
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from db.database import SessionLocal
+from db.models import OutboxEvent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("outbox-worker")
 
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
-RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 EXCHANGE_NAME = "forensicchain.events"
-DLX_NAME = "forensicchain.dlx"
-DLQ_NAME = "forensicchain.dlq"
 MAX_RETRIES = 5
 
-def get_rabbitmq_channel():
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT)
-    )
-    channel = connection.channel()
-    
-    # Declare main exchange
-    channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type='topic', durable=True)
-    
-    # Declare DLX and DLQ
-    channel.exchange_declare(exchange=DLX_NAME, exchange_type='direct', durable=True)
-    channel.queue_declare(queue=DLQ_NAME, durable=True)
-    channel.queue_bind(exchange=DLX_NAME, queue=DLQ_NAME, routing_key='poison')
-    
-    channel.confirm_delivery()
-    return connection, channel
 
-def process_outbox():
-    while True:
-        try:
-            # 1. Connect to RMQ
-            connection, channel = get_rabbitmq_channel()
-            logger.info("Connected to RabbitMQ with DLX configuration.")
-            
-            # 2. Polling loop
-            while True:
-                db = SessionLocal()
-                try:
-                    # Fetch batch of 10 with row-level locks
-                    query = text("""
-                        SELECT event_id FROM outbox_events 
-                        WHERE status = 'PENDING' 
-                        AND next_retry_at <= NOW()
-                        ORDER BY created_at ASC 
-                        LIMIT 10 
-                        FOR UPDATE SKIP LOCKED
-                    """)
-                    
-                    result = db.execute(query).fetchall()
-                    if not result:
-                        db.rollback()
-                        db.close()
-                        time.sleep(2)
-                        continue
-                        
-                    event_ids = [row[0] for row in result]
-                    events = db.query(OutboxEvent).filter(OutboxEvent.event_id.in_(event_ids)).all()
-                    
-                    for event in events:
-                        payload = event.payload_json
-                        routing_key = payload.get("routing_key") if isinstance(payload, dict) else event.event_type
-                        
-                        try:
-                            # 3. Publish with Confirm
-                            channel.basic_publish(
-                                exchange=EXCHANGE_NAME,
-                                routing_key=routing_key,
-                                body=json.dumps(payload),
-                                properties=pika.BasicProperties(
-                                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE,
-                                    message_id=str(event.event_id)
-                                ),
-                                mandatory=False
-                            )
-                            # Broker ACKed
-                            event.status = 'PUBLISHED'
-                            logger.info(f"Published event {event.event_id} ({event.event_type})")
-                            
-                        except pika.exceptions.AMQPError as e:
-                            # Re-raise to trigger rollback and reconnect
-                            logger.error(f"AMQP connection error during publish: {str(e)}")
-                            raise
-                            
-                        except Exception as e:
-                            logger.error(f"Publish failed for {event.event_id}: {str(e)}")
-                            
-                            event.retry_count += 1
-                            event.last_error = str(e)
-                            
-                            if event.retry_count >= MAX_RETRIES:
-                                # Poison message DLQ handling
-                                poison_payload = {
-                                    "original_payload": payload,
-                                    "retry_count": event.retry_count,
-                                    "last_error": event.last_error,
-                                    "failed_at": datetime.now(timezone.utc).isoformat()
-                                }
-                                try:
-                                    channel.basic_publish(
-                                        exchange=DLX_NAME,
-                                        routing_key='poison',
-                                        body=json.dumps(poison_payload),
-                                        properties=pika.BasicProperties(
-                                            delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE,
-                                            message_id=str(event.event_id)
-                                        ),
-                                        mandatory=False
-                                    )
-                                    event.status = 'FAILED'
-                                    logger.warning(f"Sent event {event.event_id} to DLQ. Marked as FAILED.")
-                                except pika.exceptions.AMQPError as dlx_err:
-                                    logger.error(f"DLQ AMQP connection error: {str(dlx_err)}")
-                                    raise
-                                except Exception as dlx_err:
-                                    logger.error(f"DLQ publish failed: {str(dlx_err)}")
-                                    # Apply backoff to retry the DLQ publish later
-                                    backoff_sec = min(2 ** event.retry_count, 300)
-                                    event.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_sec)
-                            else:
-                                # Exponential backoff
-                                backoff_sec = min(2 ** event.retry_count, 300)
-                                event.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_sec)
-                                logger.info(f"Scheduled retry for {event.event_id} in {backoff_sec}s")
-                                
-                    # 4. Commit transaction
-                    db.commit()
-                    
-                except pika.exceptions.AMQPError as e:
-                    db.rollback()
-                    db.close()
-                    logger.error(f"RabbitMQ connection lost: {str(e)}")
-                    break # Break inner loop to reconnect
-                except Exception as e:
-                    db.rollback()
-                    logger.error(f"Unexpected error processing outbox: {str(e)}")
-                    time.sleep(2)
-                finally:
-                    if db:
-                        db.close()
-                        
-        except Exception as e:
-            logger.error(f"Failed to connect to RabbitMQ, retrying in 5s: {str(e)}")
-            time.sleep(5)
+async def publish_outbox_events(exchange: aio_pika.abc.AbstractExchange) -> None:
+    """
+    Poll outbox_events where published=False, publish to RabbitMQ, mark as published.
+    On repeated failure the event stays unpublished with last_error set; the spec's
+    retry/DLQ mechanism is handled by the chain-of-custody consumer, not here.
+    """
+    db: Session = SessionLocal()
+    try:
+        result = db.execute(text("""
+            SELECT id FROM outbox_events
+            WHERE published = FALSE
+            ORDER BY created_at ASC
+            LIMIT 10
+            FOR UPDATE SKIP LOCKED
+        """)).fetchall()
+
+        if not result:
+            db.rollback()
+            return
+
+        row_ids = [row[0] for row in result]
+        events = db.query(OutboxEvent).filter(OutboxEvent.id.in_(row_ids)).all()
+
+        for event in events:
+            try:
+                await exchange.publish(
+                    aio_pika.Message(
+                        body=json.dumps(event.payload).encode(),
+                        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        content_type="application/json",
+                        message_id=str(event.event_id),
+                    ),
+                    routing_key=event.routing_key,
+                )
+                event.published = True
+                event.published_at = datetime.now(timezone.utc)
+                logger.info("Published event %s (%s)", event.event_id, event.event_type)
+
+            except Exception as e:
+                event.retry_count += 1
+                event.last_error = str(e)
+                if event.retry_count >= MAX_RETRIES:
+                    logger.error(
+                        "Giving up on event %s after %d attempts: %s",
+                        event.event_id, event.retry_count, e,
+                    )
+                else:
+                    logger.error(
+                        "Publish failed for %s (attempt %d): %s",
+                        event.event_id, event.retry_count, e,
+                    )
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        logger.error("Unexpected error in publish cycle: %s", e)
+    finally:
+        db.close()
+
+
+async def main() -> None:
+    await asyncio.sleep(10)  # allow DB + RabbitMQ to be fully ready
+
+    logger.info("Outbox worker starting, connecting to %s...", RABBITMQ_URL)
+
+    # connect_robust: automatically reconnects on transient network failures
+    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+
+    async with connection:
+        channel = await connection.channel()
+
+        exchange = await channel.declare_exchange(
+            EXCHANGE_NAME, aio_pika.ExchangeType.TOPIC, durable=True
+        )
+
+        logger.info("Outbox worker ready. Polling every 2s.")
+
+        while True:
+            await publish_outbox_events(exchange)
+            await asyncio.sleep(2)
+
 
 if __name__ == "__main__":
-    logger.info("Starting Outbox Publisher Worker...")
-    # Wait for DB initialization / rabbitmq to be fully up
-    time.sleep(10)
-    process_outbox()
+    asyncio.run(main())
