@@ -1,0 +1,213 @@
+volumes:
+  evidence_storage:
+  evidence_db_data:
+  ledger_db_data:
+  custody_db_data:
+  report_db_data:
+  report_storage:
+
+networks:
+  forensicchain_net:
+    driver: bridge
+
+services:
+
+  # ── Databases ──────────────────────────────────────────────────────
+
+  evidence-db:
+    image: postgres:16-alpine
+    container_name: evidence-db
+    environment:
+      POSTGRES_DB: evidence_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - evidence_db_data:/var/lib/postgresql/data
+    # Development: host port open for direct DB access (psql, DBeaver etc.).
+    # BEFORE DEMO: comment out "ports:" — services reach evidence-db:5432 via Docker network.
+    ports:
+      - "5433:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d evidence_db"]
+      interval: 5s
+      retries: 5
+
+  ledger-db:
+    image: postgres:16-alpine
+    container_name: ledger-db
+    environment:
+      POSTGRES_DB: ledger_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ledger_db_data:/var/lib/postgresql/data
+    # BEFORE DEMO: comment out "ports:".
+    ports:
+      - "5434:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ledger_db"]
+      interval: 5s
+      retries: 5
+
+  custody-db:
+    image: postgres:16-alpine
+    container_name: custody-db
+    environment:
+      POSTGRES_DB: custody_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - custody_db_data:/var/lib/postgresql/data
+    # BEFORE DEMO: comment out "ports:".
+    ports:
+      - "5435:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d custody_db"]
+      interval: 5s
+      retries: 5
+
+  report-db:
+    image: postgres:16-alpine
+    container_name: report-db
+    environment:
+      POSTGRES_DB: report_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - report_db_data:/var/lib/postgresql/data
+    # BEFORE DEMO: comment out "ports:".
+    ports:
+      - "5436:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d report_db"]
+      interval: 5s
+      retries: 5
+
+  # ── Message Broker ─────────────────────────────────────────────────
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    # Development: both AMQP and management UI open to host.
+    # BEFORE DEMO: close 5672 — internal services reach rabbitmq:5672 via Docker
+    # network without host exposure. Keep 15672 only if you want the UI during demo.
+    ports:
+      - "5672:5672"
+      - "15672:15672"    # management UI
+    # expose:            # ← use this instead of "ports:" before demo
+    #   - "5672"
+    # and re-add "15672:15672" only if management UI is needed during demo
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      retries: 5
+
+  # ── Services ────────────────────────────────────────────────────────
+
+  evidence-service:
+    build: ./services/evidence-collector
+    container_name: evidence-service
+    env_file: .env
+    volumes:
+      - evidence_storage:/evidence-storage
+    # Development: host port open for direct debugging.
+    # BEFORE DEMO: comment out "ports:" and uncomment "expose:" so all
+    # external traffic is forced through the API Gateway (port 8080 only).
+    ports:
+      - "8001:8001"
+    # expose:
+    #   - "8001"
+    networks: [forensicchain_net]
+    depends_on:
+      evidence-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      hash-sign-service:
+        condition: service_started
+      ledger-service:
+        condition: service_started
+
+  hash-sign-service:
+    build: ./services/hash-sign
+    container_name: hash-sign-service
+    env_file: .env
+    volumes:
+      - evidence_storage:/evidence-storage:ro
+      - ./keys:/keys:ro
+    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
+    ports:
+      - "50051:50051"
+    # expose:
+    #   - "50051"
+    networks: [forensicchain_net]
+
+  ledger-service:
+    build: ./services/immutable-ledger
+    container_name: ledger-service
+    env_file: .env
+    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
+    ports:
+      - "50052:50052"
+      - "8003:8003"
+    # expose:
+    #   - "50052"
+    #   - "8003"
+    networks: [forensicchain_net]
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+
+  custody-service:
+    build: ./services/chain-of-custody
+    container_name: custody-service
+    env_file: .env
+    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
+    ports:
+      - "8004:8004"
+    # expose:
+    #   - "8004"
+    networks: [forensicchain_net]
+    depends_on:
+      custody-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  report-service:
+    build: ./services/audit-reporter
+    container_name: report-service
+    env_file: .env
+    volumes:
+      - report_storage:/report-storage
+    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
+    ports:
+      - "8005:8005"
+    # expose:
+    #   - "8005"
+    networks: [forensicchain_net]
+    depends_on:
+      report-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  gateway:
+    build: ./services/gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    networks: [forensicchain_net]
+    depends_on:
+      - evidence-service
+      - custody-service
+      - report-service
+      - ledger-service
