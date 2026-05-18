@@ -23,10 +23,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - evidence_db_data:/var/lib/postgresql/data
-    # Development: host port open for direct DB access (psql, DBeaver etc.).
-    # BEFORE DEMO: comment out "ports:" — services reach evidence-db:5432 via Docker network.
-    ports:
-      - "5433:5432"
+    # Development: uncomment "ports:" for direct DB access (psql, DBeaver etc.).
+    # Services reach evidence-db:5432 via Docker network regardless.
+    # ports:
+    #   - "5433:5432"
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d evidence_db"]
@@ -42,9 +42,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ledger_db_data:/var/lib/postgresql/data
-    # BEFORE DEMO: comment out "ports:".
-    ports:
-      - "5434:5432"
+    # Development: uncomment "ports:" for direct DB access.
+    # ports:
+    #   - "5434:5432"
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ledger_db"]
@@ -60,9 +60,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - custody_db_data:/var/lib/postgresql/data
-    # BEFORE DEMO: comment out "ports:".
-    ports:
-      - "5435:5432"
+    # Development: uncomment "ports:" for direct DB access.
+    # ports:
+    #   - "5435:5432"
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d custody_db"]
@@ -78,9 +78,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - report_db_data:/var/lib/postgresql/data
-    # BEFORE DEMO: comment out "ports:".
-    ports:
-      - "5436:5432"
+    # Development: uncomment "ports:" for direct DB access.
+    # ports:
+    #   - "5436:5432"
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d report_db"]
@@ -95,15 +95,14 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-    # Development: both AMQP and management UI open to host.
-    # BEFORE DEMO: close 5672 — internal services reach rabbitmq:5672 via Docker
-    # network without host exposure. Keep 15672 only if you want the UI during demo.
+    # AMQP port 5672 is exposed only within Docker network (services connect via container name).
+    # Management UI 15672 remains host-accessible for monitoring.
+    # Development: uncomment "5672:5672" in ports for direct AMQP access from host tools.
     ports:
-      - "5672:5672"
+      # - "5672:5672"    # dev only — close before demo
       - "15672:15672"    # management UI
-    # expose:            # ← use this instead of "ports:" before demo
-    #   - "5672"
-    # and re-add "15672:15672" only if management UI is needed during demo
+    expose:
+      - "5672"
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
@@ -120,13 +119,12 @@ services:
     env_file: .env
     volumes:
       - evidence_storage:/evidence-storage
-    # Development: host port open for direct debugging.
-    # BEFORE DEMO: comment out "ports:" and uncomment "expose:" so all
-    # external traffic is forced through the API Gateway (port 8080 only).
-    ports:
-      - "8001:8001"
-    # expose:
-    #   - "8001"
+    # All external traffic is forced through the API Gateway (port 8080 only).
+    # Development: uncomment "ports:" for direct debugging without the gateway.
+    # ports:
+    #   - "8001:8001"
+    expose:
+      - "8001"
     networks: [forensicchain_net]
     depends_on:
       evidence-db:
@@ -134,7 +132,7 @@ services:
       rabbitmq:
         condition: service_healthy
       hash-sign-service:
-        condition: service_started
+        condition: service_healthy
       ledger-service:
         condition: service_started
 
@@ -159,24 +157,31 @@ services:
     volumes:
       - evidence_storage:/evidence-storage:ro
       - ./keys:/keys:ro
-    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
-    ports:
-      - "50051:50051"
-    # expose:
-    #   - "50051"
+    # Development: uncomment "ports:" for direct gRPC debugging.
+    # ports:
+    #   - "50051:50051"
+    expose:
+      - "50051"
+      - "8002"
     networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',50051),2)\" 2>/dev/null && echo ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   ledger-service:
     build: ./services/immutable-ledger
     container_name: ledger-service
     env_file: .env
-    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
-    ports:
-      - "50052:50052"
-      - "8003:8003"
-    # expose:
-    #   - "50052"
-    #   - "8003"
+    # Development: uncomment "ports:" for direct gRPC/REST debugging.
+    # ports:
+    #   - "50052:50052"
+    #   - "8003:8003"
+    expose:
+      - "50052"
+      - "8003"
     networks: [forensicchain_net]
     depends_on:
       ledger-db:
@@ -186,11 +191,11 @@ services:
     build: ./services/chain-of-custody
     container_name: custody-service
     env_file: .env
-    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
-    ports:
-      - "8004:8004"
-    # expose:
-    #   - "8004"
+    # Development: uncomment "ports:" for direct debugging.
+    # ports:
+    #   - "8004:8004"
+    expose:
+      - "8004"
     networks: [forensicchain_net]
     depends_on:
       custody-db:
@@ -204,11 +209,11 @@ services:
     env_file: .env
     volumes:
       - report_storage:/report-storage
-    # BEFORE DEMO: comment out "ports:", uncomment "expose:".
-    ports:
-      - "8005:8005"
-    # expose:
-    #   - "8005"
+    # Development: uncomment "ports:" for direct debugging.
+    # ports:
+    #   - "8005:8005"
+    expose:
+      - "8005"
     networks: [forensicchain_net]
     depends_on:
       report-db:
