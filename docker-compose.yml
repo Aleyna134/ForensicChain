@@ -106,9 +106,11 @@ services:
     # and re-add "15672:15672" only if management UI is needed during demo
     networks: [forensicchain_net]
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
-      retries: 5
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   # ── Services ────────────────────────────────────────────────────────
 
