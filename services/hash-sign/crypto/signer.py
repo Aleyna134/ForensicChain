@@ -1,79 +1,46 @@
 import base64
 import os
+
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key
 
-def sign_hash(hash_hex: str, private_key_path: str = "/keys/private_key.pem") -> str:
+_PRIVATE_KEY_PATH = os.getenv("PRIVATE_KEY_PATH", "/keys/private_key.pem")
+_PUBLIC_KEY_PATH = os.getenv("PUBLIC_KEY_PATH", "/keys/public_key.pem")
+
+# Load keys once at module import — avoids per-call file I/O and PEM parsing.
+with open(_PRIVATE_KEY_PATH, "rb") as _f:
+    _private_key = load_pem_private_key(_f.read(), password=None)
+
+with open(_PUBLIC_KEY_PATH, "rb") as _f:
+    _public_key = load_pem_public_key(_f.read())
+
+
+def sign_hash(hash_hex: str) -> str:
     """
-    Signs a given SHA-256 hash (hex string) using the RSA private key.
-    
-    Args:
-        hash_hex (str): The hex-encoded SHA-256 hash.
-        private_key_path (str): Path to the PEM encoded private key.
-        
-    Returns:
-        str: Base64-encoded RSA signature.
-        
-    Raises:
-        FileNotFoundError: If the private key file does not exist.
-        Exception: If key loading or signing fails.
+    Signs a SHA-256 hash (hex string) with the RSA private key.
+    Returns: base64-encoded RSA signature.
     """
-    if not os.path.exists(private_key_path):
-        raise FileNotFoundError(f"Private key not found: {private_key_path}")
-        
-    with open(private_key_path, "rb") as key_file:
-        private_key = load_pem_private_key(
-            key_file.read(),
-            password=None
-        )
-        
-    # We sign the actual hash bytes (hex decoded) rather than the hex string,
-    # or we can sign the UTF-8 encoded hex string itself.
-    # Standard practice is to sign the raw bytes of the hash or the string representation.
-    # Here we sign the string representation as it is passed around.
-    data_to_sign = hash_hex.encode("utf-8")
-    
-    signature = private_key.sign(
-        data_to_sign,
+    signature = _private_key.sign(
+        hash_hex.encode("utf-8"),
         padding.PKCS1v15(),
-        hashes.SHA256()
+        hashes.SHA256(),
     )
-    
     return base64.b64encode(signature).decode("utf-8")
 
 
-def verify_signature(hash_hex: str, signature_base64: str, public_key_path: str = "/keys/public_key.pem") -> bool:
+def verify_signature(hash_hex: str, signature_base64: str) -> bool:
     """
-    Verifies a base64-encoded RSA signature against a hash value using the public key.
-    
-    Args:
-        hash_hex (str): The expected hex-encoded SHA-256 hash.
-        signature_base64 (str): The base64-encoded RSA signature.
-        public_key_path (str): Path to the PEM encoded public key.
-        
-    Returns:
-        bool: True if signature is valid, False otherwise.
+    Verifies a base64-encoded RSA signature against a hash value.
+    Returns True if valid, False otherwise.
     """
-    if not os.path.exists(public_key_path):
-        raise FileNotFoundError(f"Public key not found: {public_key_path}")
-        
     try:
-        with open(public_key_path, "rb") as key_file:
-            public_key = load_pem_public_key(key_file.read())
-            
-        data_to_verify = hash_hex.encode("utf-8")
-        signature_bytes = base64.b64decode(signature_base64)
-        
-        public_key.verify(
-            signature_bytes,
-            data_to_verify,
+        _public_key.verify(
+            base64.b64decode(signature_base64),
+            hash_hex.encode("utf-8"),
             padding.PKCS1v15(),
-            hashes.SHA256()
+            hashes.SHA256(),
         )
         return True
-    except Exception as e:
-        # If verification fails, it will raise an exception from cryptography library
-        # We catch it and return False, representing invalid signature
-        print(f"Signature verification failed: {e}")
+    except Exception:
         return False
