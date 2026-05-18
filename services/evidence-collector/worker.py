@@ -68,8 +68,8 @@ def process_outbox():
                     events = db.query(OutboxEvent).filter(OutboxEvent.event_id.in_(event_ids)).all()
                     
                     for event in events:
-                        routing_key = event.event_type
                         payload = event.payload_json
+                        routing_key = payload.get("routing_key") if isinstance(payload, dict) else event.event_type
                         
                         try:
                             # 3. Publish with Confirm

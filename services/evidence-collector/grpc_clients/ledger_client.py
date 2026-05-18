@@ -64,6 +64,42 @@ def get_proof_by_artifact(artifact_id: str, timeout: int = 15) -> Tuple[bool, di
     except Exception as e:
         return False, {}, f"Internal Error: {str(e)}"
 
+def append_verification_record(
+    artifact_id: str,
+    case_id: str,
+    verification_result: str,
+    original_hash: str,
+    current_hash: str,
+    verified_by: str,
+    timeout: int = 15
+) -> Tuple[bool, str, str]:
+    """
+    Appends a VERIFICATION record to the ledger after a verify operation.
+    Returns: (success, record_id, error_message)
+    """
+    try:
+        with grpc.insecure_channel(CHANNEL_ADDRESS) as channel:
+            stub = ledger_pb2_grpc.LedgerServiceStub(channel)
+            request = ledger_pb2.VerificationRecordRequest(
+                artifact_id=artifact_id,
+                case_id=case_id,
+                record_type="EVIDENCE_VERIFICATION",
+                verification_result=verification_result,
+                original_hash=original_hash,
+                current_hash=current_hash,
+                verified_by=verified_by,
+                verified_at=datetime.now(timezone.utc).isoformat()
+            )
+            response = stub.AppendVerificationRecord(request, timeout=timeout)
+            if response.success:
+                return True, response.record_id, ""
+            else:
+                return False, "", response.error_message
+    except grpc.RpcError as e:
+        return False, "", f"gRPC Error: {e.details()}"
+    except Exception as e:
+        return False, "", f"Internal Error: {str(e)}"
+
 def validate_ledger_chain(timeout: int = 30) -> Tuple[bool, bool, str]:
     """
     Validates the entire ledger chain.

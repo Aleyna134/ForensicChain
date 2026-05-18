@@ -1,10 +1,13 @@
 import shutil
 import os
 import uuid
+import logging
 from fastapi import APIRouter, UploadFile, File, Form, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from db.database import get_db
 from db.models import Artifact
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -178,15 +181,28 @@ async def upload_evidence(
         "uploaded_at": artifact.uploaded_at.isoformat() if artifact.uploaded_at else None
     }
 
-@router.post("/verify")
+@router.post("/evidence/{artifact_id}/verify", status_code=200)
 async def verify_evidence(
-    artifact_id: str = Form(...),
-    file: UploadFile = File(...)
+    request: Request,
+    artifact_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ):
-    # Create a temporary path in shared volume
-    temp_filename = f"verify_{uuid.uuid4()}.bin"
-    temp_path = os.path.join(STORAGE_BASE, temp_filename)
-    
+    actor_id = request.headers.get("X-User-Id", "unknown")
+    actor_role = request.headers.get("X-User-Role", "unknown")
+    corr_id_str = request.headers.get("X-Correlation-Id", str(uuid.uuid4()))
+    try:
+        corr_id = uuid.UUID(corr_id_str)
+    except ValueError:
+        corr_id = uuid.uuid4()
+
+    verification_id = uuid.uuid4()
+
+    # FIX-A6: structured temp path under /evidence-storage/tmp/{artifact_id}/
+    temp_dir = os.path.join(STORAGE_BASE, "tmp", artifact_id)
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, f"{verification_id}.bin")
+
     file_size = 0
     try:
         with open(temp_path, "wb") as f:
@@ -196,34 +212,37 @@ async def verify_evidence(
                     break
                 f.write(chunk)
                 file_size += len(chunk)
-                
-        # Import clients
+
         from grpc_clients.hash_sign_client import recompute_hash, verify_signature
-        from grpc_clients.ledger_client import get_proof_by_artifact, validate_ledger_chain
-        
-        # 1. Validate Ledger
+        from grpc_clients.ledger_client import get_proof_by_artifact, validate_ledger_chain, append_verification_record
+
+        # 1. Validate Ledger chain integrity
         lv_success, is_valid_chain, lv_error = validate_ledger_chain(timeout=15)
         if not lv_success:
             raise HTTPException(status_code=503, detail=f"Ledger validation check failed: {lv_error}")
         if not is_valid_chain:
             return {"status": "LEDGER_CORRUPTED", "message": "The immutable ledger chain is corrupted."}
-            
+
         # 2. Get original proof
         gp_success, proof_data, gp_error = get_proof_by_artifact(artifact_id, timeout=15)
         if not gp_success:
             raise HTTPException(status_code=404, detail=f"Failed to fetch proof: {gp_error}")
-            
+
         orig_hash = proof_data["hash_value"]
         orig_sig = proof_data["signature_value"]
-        
-        # 3. Verify Signature
+
+        # 3. Verify cryptographic signature
         vs_success, is_sig_valid, vs_error = verify_signature(artifact_id, orig_hash, orig_sig, timeout=15)
         if not vs_success:
             raise HTTPException(status_code=503, detail=f"Signature verification failed: {vs_error}")
         if not is_sig_valid:
+            _write_verification_outbox(
+                db, artifact_id, actor_id, actor_role, corr_id,
+                "VerificationFailed", "INVALID_SIGNATURE", orig_hash, orig_hash
+            )
             return {"status": "INVALID_SIGNATURE", "message": "The cryptographic signature of the original hash is invalid."}
-            
-        # 4. Recompute Hash
+
+        # 4. Recompute hash of submitted file
         rh_success, current_hash, rh_error = recompute_hash(
             artifact_id=artifact_id,
             case_id="VERIFY",
@@ -234,16 +253,110 @@ async def verify_evidence(
         )
         if not rh_success:
             raise HTTPException(status_code=503, detail=f"Hash recomputation failed: {rh_error}")
-            
-        # 5. Compare Hashes
+
+        # 5. Compare hashes — determine result
         if current_hash != orig_hash:
+            _record_verification(
+                artifact_id=artifact_id, case_id="VERIFY",
+                verification_result="TAMPERED",
+                original_hash=orig_hash, current_hash=current_hash,
+                verified_by=actor_id
+            )
+            _write_verification_outbox(
+                db, artifact_id, actor_id, actor_role, corr_id,
+                "VerificationFailed", "TAMPERED", orig_hash, current_hash
+            )
             return {"status": "TAMPERED", "message": "The artifact hash does not match the original ledger record."}
-            
+
+        # 6. FIX-A5: Append verification record to ledger
+        _record_verification(
+            artifact_id=artifact_id, case_id="VERIFY",
+            verification_result="VALID",
+            original_hash=orig_hash, current_hash=current_hash,
+            verified_by=actor_id
+        )
+        _write_verification_outbox(
+            db, artifact_id, actor_id, actor_role, corr_id,
+            "VerificationPassed", "VALID", orig_hash, current_hash
+        )
+
         return {"status": "VALID", "message": "The artifact is intact and cryptographically verified."}
-        
+
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+        try:
+            os.rmdir(temp_dir)
+        except OSError:
+            pass  # dir not empty or already gone — fine
+
+
+def _record_verification(
+    artifact_id: str, case_id: str,
+    verification_result: str,
+    original_hash: str, current_hash: str,
+    verified_by: str
+):
+    from grpc_clients.ledger_client import append_verification_record
+    vr_success, _, vr_error = append_verification_record(
+        artifact_id=artifact_id,
+        case_id=case_id,
+        verification_result=verification_result,
+        original_hash=original_hash,
+        current_hash=current_hash,
+        verified_by=verified_by,
+        timeout=15
+    )
+    if not vr_success:
+        logger.warning(f"AppendVerificationRecord failed for {artifact_id}: {vr_error}")
+
+
+def _write_verification_outbox(
+    db: Session,
+    artifact_id: str,
+    actor_id: str,
+    actor_role: str,
+    corr_id: uuid.UUID,
+    event_type: str,
+    verification_result: str,
+    original_hash: str,
+    current_hash: str,
+):
+    from datetime import datetime, timezone
+    from db.models import OutboxEvent
+
+    event_id = str(uuid.uuid4())
+    timestamp_iso = datetime.now(timezone.utc).isoformat()
+    routing_key = f"forensicchain.evidence.{event_type.lower()}"
+
+    envelope = {
+        "event_id": event_id,
+        "event_type": event_type,
+        "routing_key": routing_key,
+        "artifact_id": artifact_id,
+        "actor_id": actor_id,
+        "actor_role": actor_role,
+        "timestamp": timestamp_iso,
+        "correlation_id": str(corr_id),
+        "payload": {
+            "verification_result": verification_result,
+            "original_hash": original_hash,
+            "current_hash": current_hash,
+        }
+    }
+    try:
+        outbox_event = OutboxEvent(
+            event_id=uuid.UUID(event_id),
+            aggregate_id=artifact_id,
+            event_type=event_type,
+            payload_json=envelope,
+            status="PENDING"
+        )
+        db.add(outbox_event)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to write verification outbox event for {artifact_id}: {e}")
 
 @router.get("/evidence/{artifact_id}")
 async def get_evidence(
@@ -267,10 +380,15 @@ async def get_evidence(
     return {
         "artifact_id": str(artifact.artifact_id),
         "case_id": artifact.case_id,
-        "status": artifact.status,
+        "file_name": artifact.file_name,
+        "file_size": artifact.file_size,
+        "artifact_type": artifact.artifact_type,
+        "description": artifact.description,
+        "hash_algorithm": artifact.hash_algorithm,
         "hash_value": artifact.hash_value,
         "signature_value": artifact.signature_value,
         "ledger_record_id": str(artifact.ledger_record_id) if artifact.ledger_record_id else None,
+        "status": artifact.status,
         "uploaded_at": uploaded_at.isoformat() if uploaded_at else None
     }
 
