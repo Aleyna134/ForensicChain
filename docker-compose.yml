@@ -138,6 +138,20 @@ services:
       ledger-service:
         condition: service_started
 
+  outbox-worker:
+    build: ./services/evidence-collector
+    container_name: outbox-worker
+    command: ["python", "worker.py"]
+    env_file: .env
+    volumes:
+      - evidence_storage:/evidence-storage
+    networks: [forensicchain_net]
+    depends_on:
+      evidence-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
   hash-sign-service:
     build: ./services/hash-sign
     container_name: hash-sign-service
