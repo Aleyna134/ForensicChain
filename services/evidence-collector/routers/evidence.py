@@ -180,6 +180,46 @@ async def upload_evidence(
     }
 
 
+# ── List ──────────────────────────────────────────────────────────────────────
+
+@router.get("/evidence")
+async def list_evidence(
+    request: Request,
+    case_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    actor_id = request.headers.get("X-User-Id", "unknown")
+    actor_role = request.headers.get("X-User-Role", "unknown")
+
+    query = db.query(Artifact)
+    if actor_role == "investigator":
+        query = query.filter(Artifact.uploaded_by == actor_id)
+    if case_id:
+        query = query.filter(Artifact.case_id == case_id)
+    artifacts = query.order_by(Artifact.uploaded_at.desc()).all()
+
+    result = []
+    for a in artifacts:
+        uploaded_at = a.uploaded_at
+        if uploaded_at and uploaded_at.tzinfo is None:
+            uploaded_at = uploaded_at.replace(tzinfo=timezone.utc)
+        result.append({
+            "artifact_id": str(a.artifact_id),
+            "case_id": a.case_id,
+            "file_name": a.file_name,
+            "file_size": a.file_size,
+            "artifact_type": a.artifact_type,
+            "description": a.description,
+            "hash_algorithm": a.hash_algorithm,
+            "hash_value": a.hash_value,
+            "signature_value": a.signature_value,
+            "ledger_record_id": str(a.ledger_record_id) if a.ledger_record_id else None,
+            "status": a.status,
+            "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
+        })
+    return result
+
+
 # ── Verify ─────────────────────────────────────────────────────────────────────
 
 @router.post("/evidence/{artifact_id}/verify", status_code=200)
@@ -205,6 +245,9 @@ async def verify_evidence(
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_uuid).first()
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if actor_role == "investigator" and artifact.uploaded_by != actor_id:
+        raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
 
     # Spec §7: publish VerificationRequested before executing the verification flow
     _write_evidence_event_outbox(
@@ -347,6 +390,9 @@ async def get_evidence(
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_uuid).first()
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if actor_role == "investigator" and artifact.uploaded_by != actor_id:
+        raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
 
     _write_evidence_event_outbox(
         db=db,
