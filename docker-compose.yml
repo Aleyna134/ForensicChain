@@ -5,6 +5,7 @@ volumes:
   custody_db_data:
   report_db_data:
   report_storage:
+  auth_db_data:
 
 networks:
   forensicchain_net:
@@ -84,6 +85,24 @@ services:
     networks: [forensicchain_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d report_db"]
+      interval: 5s
+      retries: 5
+
+  auth-db:
+    image: postgres:16-alpine
+    container_name: auth-db
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    # Development: uncomment "ports:" for direct DB access.
+    # ports:
+    #   - "5437:5432"
+    networks: [forensicchain_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d auth_db"]
       interval: 5s
       retries: 5
 
@@ -221,6 +240,24 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  auth-service:
+    build: ./services/auth-service
+    container_name: auth-service
+    env_file: .env
+    expose:
+      - "8006"
+    networks: [forensicchain_net]
+    depends_on:
+      auth-db:
+        condition: service_healthy
+
+  forensic-ui:
+    build: ./forensic-ui
+    container_name: forensic-ui
+    expose:
+      - "80"
+    networks: [forensicchain_net]
+
   gateway:
     build: ./services/gateway
     container_name: api-gateway
@@ -232,3 +269,5 @@ services:
       - custody-service
       - report-service
       - ledger-service
+      - auth-service
+      - forensic-ui
