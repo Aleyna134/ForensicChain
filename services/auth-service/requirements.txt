@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]==2.0.30
+asyncpg
+python-jose[cryptography]
+bcrypt==4.3.0
+pydantic-settings
