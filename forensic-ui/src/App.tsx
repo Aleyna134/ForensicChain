@@ -7,6 +7,7 @@ import ArtifactUploadPage from './pages/ArtifactUploadPage'
 import CasesPage from './pages/CasesPage'
 import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
+import LedgerPage from './pages/LedgerPage'
 import ReportPage from './pages/ReportPage'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import { isAuthenticated } from './hooks/useAuth'
@@ -45,6 +46,11 @@ export default function App() {
         {/* ── forensic_analyst + legal_reviewer ─────────────────────── */}
         <Route element={<ProtectedRoute allowedRoles={['forensic_analyst', 'legal_reviewer']} />}>
           <Route path="/custody/:artifactId" element={<CasesPage />} />
+        </Route>
+
+        {/* ── legal_reviewer + admin ─────────────────────────────────── */}
+        <Route element={<ProtectedRoute allowedRoles={['legal_reviewer', 'admin']} />}>
+          <Route path="/ledger" element={<LedgerPage />} />
         </Route>
 
         {/* ── legal_reviewer only ────────────────────────────────────── */}

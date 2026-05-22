@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Index, Integer, String, DateTime, func, Text
+from sqlalchemy import Column, Index, String, DateTime, func, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from .database import Base
 
@@ -8,6 +8,7 @@ class LedgerRecord(Base):
     __tablename__ = "ledger_records"
     __table_args__ = (
         Index('idx_ledger_artifact', 'artifact_id', 'created_at'),
+        Index('idx_ledger_case', 'case_id', 'created_at'),
     )
 
     record_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -31,8 +32,9 @@ class LedgerRecord(Base):
 
 
 class LedgerState(Base):
+    """One row per case — tracks the chain head for each case's independent ledger."""
     __tablename__ = "ledger_state"
 
-    id = Column(Integer, primary_key=True, default=1)
+    case_id = Column(String(64), primary_key=True)
     last_record_hash = Column(String(256), nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
