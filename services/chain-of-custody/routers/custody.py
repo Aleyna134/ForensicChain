@@ -1,10 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth_client import get_assigned_case_numbers
 from db.database import get_db
 from db.models import CustodyEvent
 from db.repository import get_timeline
@@ -48,6 +49,7 @@ def _validate_chain(events: list[CustodyEvent]) -> bool:
 async def get_custody_timeline(
     artifact_id: UUID,
     db: AsyncSession = Depends(get_db),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> TimelineResponse:
     events = await get_timeline(db, str(artifact_id))
 
@@ -55,6 +57,23 @@ async def get_custody_timeline(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No custody events found for artifact {artifact_id}",
+        )
+
+    # Every custody event carries the case_id from the originating domain event.
+    # Use the first event's case_id to enforce that the requesting user is assigned
+    # to the case this artifact belongs to.
+    case_id = events[0].case_id
+    if not case_id or not x_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot verify case assignment",
+        )
+
+    assigned = await get_assigned_case_numbers(x_user_id)
+    if case_id not in assigned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not assigned to this case",
         )
 
     chain_valid = _validate_chain(events)

@@ -1,9 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import get_db
 from jwt import decode_access_token
+from models import Case, CaseAssignment
 from rbac import is_authorized
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -44,3 +48,28 @@ async def validate(
     resp.headers["X-User-Role"]      = role
     resp.headers["X-Correlation-Id"] = corr_id
     return resp
+
+
+@router.get("/assignments/by-user/{username}")
+async def get_user_assignments(username: str, db: AsyncSession = Depends(get_db)):
+    """Returns active case_numbers assigned to a user. Called by evidence-collector."""
+    result = await db.execute(
+        select(Case.case_number)
+        .join(CaseAssignment, Case.id == CaseAssignment.case_id)
+        .where(CaseAssignment.username == username)
+        .where(CaseAssignment.is_active == True)
+        .where(Case.status == "OPEN")
+    )
+    return {"case_numbers": list(result.scalars().all())}
+
+
+@router.get("/cases/{case_number}")
+async def get_case_by_number(case_number: str, db: AsyncSession = Depends(get_db)):
+    """Checks whether a case exists and is OPEN. Called by evidence-collector on upload."""
+    result = await db.execute(
+        select(Case).where(Case.case_number == case_number).where(Case.status == "OPEN")
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found or not open")
+    return {"id": case.id, "case_number": case.case_number, "title": case.title}

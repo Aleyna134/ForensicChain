@@ -19,6 +19,11 @@ export interface ReportVerification {
   verified_at: string
 }
 
+export async function listReportsByArtifact(artifactId: string): Promise<Report[]> {
+  const res = await client.get<Report[]>(`/reports/by-artifact/${artifactId}`)
+  return res.data
+}
+
 export async function generateReport(artifactId: string): Promise<Report> {
   const res = await client.post<Report>(`/reports/${artifactId}`)
   return res.data
@@ -34,6 +39,12 @@ export async function verifyReport(reportId: string): Promise<ReportVerification
   return res.data
 }
 
-export function downloadReportUrl(reportId: string): string {
-  return `/api/reports/${reportId}/download`
+export async function downloadReport(reportId: string): Promise<void> {
+  const res = await client.get(`/reports/${reportId}/download`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `report-${reportId}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
 }

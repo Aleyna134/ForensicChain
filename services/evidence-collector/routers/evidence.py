@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, Depends, Request, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from auth_client import get_assigned_case_numbers
 from db.database import get_db
 from db.models import Artifact, OutboxEvent
 from grpc_clients.hash_sign_client import compute_and_sign_async, recompute_hash_async, verify_signature_async
@@ -44,6 +45,10 @@ async def upload_evidence(
     actor_id = request.headers.get("X-User-Id", "unknown")
     actor_role = request.headers.get("X-User-Role", "unknown")
     corr_id_str = request.headers.get("X-Correlation-Id", str(uuid.uuid4()))
+
+    assigned = await get_assigned_case_numbers(actor_id)
+    if case_id not in assigned:
+        raise HTTPException(status_code=403, detail="Not assigned to this case or case is not open")
 
     try:
         corr_id = uuid.UUID(corr_id_str)
@@ -191,11 +196,22 @@ async def list_evidence(
     actor_id = request.headers.get("X-User-Id", "unknown")
     actor_role = request.headers.get("X-User-Role", "unknown")
 
+    if actor_role == "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     query = db.query(Artifact)
+
     if actor_role == "investigator":
         query = query.filter(Artifact.uploaded_by == actor_id)
+    elif actor_role in ("forensic_analyst", "legal_reviewer"):
+        assigned = await get_assigned_case_numbers(actor_id)
+        if not assigned:
+            return []
+        query = query.filter(Artifact.case_id.in_(assigned))
+
     if case_id:
         query = query.filter(Artifact.case_id == case_id)
+
     artifacts = query.order_by(Artifact.uploaded_at.desc()).all()
 
     result = []
@@ -203,7 +219,7 @@ async def list_evidence(
         uploaded_at = a.uploaded_at
         if uploaded_at and uploaded_at.tzinfo is None:
             uploaded_at = uploaded_at.replace(tzinfo=timezone.utc)
-        result.append({
+        record = {
             "artifact_id": str(a.artifact_id),
             "case_id": a.case_id,
             "file_name": a.file_name,
@@ -214,9 +230,14 @@ async def list_evidence(
             "hash_value": a.hash_value,
             "signature_value": a.signature_value,
             "ledger_record_id": str(a.ledger_record_id) if a.ledger_record_id else None,
+            "uploaded_by": a.uploaded_by,
             "status": a.status,
             "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
-        })
+        }
+        if actor_role == "legal_reviewer":
+            record["hash_value"] = None
+            record["signature_value"] = None
+        result.append(record)
     return result
 
 
@@ -246,8 +267,13 @@ async def verify_evidence(
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    if actor_role == "investigator" and artifact.uploaded_by != actor_id:
-        raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
+    if actor_role == "investigator":
+        if artifact.uploaded_by != actor_id:
+            raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
+    elif actor_role in ("forensic_analyst", "legal_reviewer"):
+        assigned = await get_assigned_case_numbers(actor_id)
+        if artifact.case_id not in assigned:
+            raise HTTPException(status_code=403, detail="Not assigned to this case")
 
     # Spec §7: publish VerificationRequested before executing the verification flow
     _write_evidence_event_outbox(
@@ -391,8 +417,15 @@ async def get_evidence(
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    if actor_role == "investigator" and artifact.uploaded_by != actor_id:
-        raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
+    if actor_role == "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    elif actor_role == "investigator":
+        if artifact.uploaded_by != actor_id:
+            raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
+    elif actor_role in ("forensic_analyst", "legal_reviewer"):
+        assigned = await get_assigned_case_numbers(actor_id)
+        if artifact.case_id not in assigned:
+            raise HTTPException(status_code=403, detail="Not assigned to this case")
 
     _write_evidence_event_outbox(
         db=db,
@@ -422,6 +455,7 @@ async def get_evidence(
         "hash_value": artifact.hash_value,
         "signature_value": artifact.signature_value,
         "ledger_record_id": str(artifact.ledger_record_id) if artifact.ledger_record_id else None,
+        "uploaded_by": artifact.uploaded_by,
         "status": artifact.status,
         "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
     }
@@ -453,6 +487,14 @@ async def download_evidence(
     artifact = db.query(Artifact).filter(Artifact.artifact_id == artifact_uuid).first()
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if actor_role == "investigator":
+        if artifact.uploaded_by != actor_id:
+            raise HTTPException(status_code=403, detail="Access denied: not the owner of this artifact")
+    elif actor_role == "forensic_analyst":
+        assigned = await get_assigned_case_numbers(actor_id)
+        if artifact.case_id not in assigned:
+            raise HTTPException(status_code=403, detail="Not assigned to this case")
 
     if not artifact.storage_path or not os.path.exists(artifact.storage_path):
         raise HTTPException(status_code=404, detail="Evidence file not found on storage")

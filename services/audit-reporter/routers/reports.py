@@ -9,9 +9,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from auth_client import get_artifact_case_id, get_assigned_case_numbers
 from db.database import get_db
 from db.models import Report
-from db.repository import get_report, insert_report
+from db.repository import get_report, get_reports_by_artifact, insert_report
 from rabbitmq.publisher import publish_event
 from report_generator import build_report
 
@@ -57,6 +58,20 @@ async def generate_report(
     db: Session = Depends(get_db),
 ) -> ReportOut:
     actor_id, actor_role, corr_id = _get_identity(request)
+
+    case_id = await get_artifact_case_id(artifact_id)
+    if not case_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+    assigned = await get_assigned_case_numbers(actor_id)
+    if case_id not in assigned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not assigned to this case",
+        )
+
     report_id = str(uuid.uuid4())
     generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -122,6 +137,37 @@ async def generate_report(
         generated_by=report.generated_by,
         storage_path=report.storage_path,
     )
+
+
+@router.get("/by-artifact/{artifact_id}", response_model=list[ReportOut])
+async def list_reports_by_artifact(
+    artifact_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[ReportOut]:
+    actor_id, _, _ = _get_identity(request)
+
+    case_id = await get_artifact_case_id(artifact_id)
+    if not case_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    assigned = await get_assigned_case_numbers(actor_id)
+    if case_id not in assigned:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this case")
+
+    reports = get_reports_by_artifact(db, artifact_id)
+    return [
+        ReportOut(
+            report_id=r.report_id,
+            artifact_id=r.artifact_id,
+            case_id=r.case_id,
+            report_hash=r.report_hash,
+            format=r.format,
+            generated_at=r.generated_at.isoformat(),
+            generated_by=r.generated_by,
+            storage_path=r.storage_path,
+        )
+        for r in reports
+    ]
 
 
 @router.get("/{report_id}", response_model=ReportOut)

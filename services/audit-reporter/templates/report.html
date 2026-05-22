@@ -4,18 +4,30 @@
   <meta charset="UTF-8" />
   <title>ForensicChain — Audit Report</title>
   <style>
-    body        { font-family: "DejaVu Sans", sans-serif; font-size: 11pt; color: #1a1a1a; margin: 40px; }
+    @page       { size: A4 portrait; margin: 16mm; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body  { margin: 0; padding: 0; }
+    body        { font-family: "DejaVu Sans", sans-serif; font-size: 11pt; color: #1a1a1a; }
     h1          { font-size: 18pt; color: #003366; border-bottom: 2px solid #003366; padding-bottom: 6px; }
     h2          { font-size: 13pt; color: #003366; margin-top: 28px; }
     table       { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th          { background: #003366; color: #fff; text-align: left; padding: 6px 10px; font-size: 10pt; }
-    td          { padding: 5px 10px; border-bottom: 1px solid #ddd; font-size: 10pt; }
+    th          { background: #003366; color: #fff; text-align: left; padding: 5px 8px; font-size: 10pt; }
+    td          { padding: 4px 8px; border-bottom: 1px solid #ddd; font-size: 10pt; }
     tr:nth-child(even) td { background: #f5f7fa; }
     .label      { font-weight: bold; width: 200px; }
-    .mono       { font-family: monospace; word-break: break-all; font-size: 9pt; }
+    .mono       { font-family: monospace; word-break: break-all; overflow-wrap: anywhere; font-size: 9pt; }
     .valid      { color: #2a7a2a; font-weight: bold; }
     .invalid    { color: #b22222; font-weight: bold; }
     .footer     { margin-top: 40px; font-size: 9pt; color: #666; border-top: 1px solid #ccc; padding-top: 8px; }
+    .timeline   { table-layout: fixed; width: 100%; }
+    .timeline col.ts    { width: 22%; }
+    .timeline col.et    { width: 21%; }
+    .timeline col.actor { width: 17%; }
+    .timeline col.role  { width: 17%; }
+    .timeline col.rsn   { width: 23%; }
+    .timeline th,
+    .timeline td        { padding: 4px 6px; font-size: 8.5pt;
+                          word-break: break-all; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -60,10 +72,13 @@
   {% endif %}
   &nbsp;&mdash;&nbsp; {{ timeline.total_events }} event(s)
 </p>
-<table>
+<table class="timeline">
+  <colgroup>
+    <col class="ts" /><col class="et" /><col class="actor" /><col class="role" /><col class="rsn" />
+  </colgroup>
   <thead>
     <tr>
-      <th>Timestamp</th>
+      <th>Timestamp (UTC)</th>
       <th>Event Type</th>
       <th>Actor</th>
       <th>Role</th>
@@ -73,7 +88,7 @@
   <tbody>
     {% for event in timeline.events %}
     <tr>
-      <td>{{ event.timestamp }}</td>
+      <td>{{ event.timestamp[:19].replace('T', ' ') if event.timestamp else '—' }}</td>
       <td>{{ event.event_type }}</td>
       <td>{{ event.actor_id }}</td>
       <td>{{ event.actor_role }}</td>

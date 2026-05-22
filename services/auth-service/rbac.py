@@ -3,42 +3,46 @@ import re
 # Role → permitted (method, path) pairs
 # URI has already been stripped of the /api prefix by nginx ($rbac_uri).
 #
-# investigator    : POST /evidence          — create new artifact
-#                   GET  /evidence/*        — read artifact list & detail
-#                   POST /evidence/*/verify — trigger integrity verification
+# investigator    : POST /evidence          — upload artifact
+#                   GET  /evidence/*        — own artifacts only (enforced in domain service)
+#                   POST /evidence/*/verify — verify own artifacts
 #
-# forensic_analyst: POST /evidence          — create new artifact
-#                   GET  /evidence/*        — read artifact list & detail
-#                   POST /evidence/*/verify — trigger integrity verification
+# forensic_analyst: POST /evidence          — upload artifact
+#                   GET  /evidence/*        — assigned cases only (enforced in domain service)
+#                   POST /evidence/*/verify — verify artifacts in assigned cases
 #
-# legal_reviewer  : GET  /custody/*         — read custody chain
+# legal_reviewer  : GET  /evidence/*        — assigned cases, limited fields (domain service)
+#                   POST /evidence/*/verify — verify artifacts in assigned cases
+#                   GET  /custody/*         — custody timeline
 #                   POST /reports/*         — generate report
 #                   GET  /reports/*         — read report
 #
-# admin           : GET|POST|PATCH /admin/* — system administration only
-#                   (no implicit catch-all — admin manages the platform,
-#                    not the evidence data directly)
+# admin           : GET|POST|PATCH|DELETE /admin/* — user + case management only
+#                   GET /evidence → 403 (no rule matches)
 
 # Rules are evaluated top-to-bottom; first matching (method + pattern) wins.
 # More specific patterns must come before broader ones for the same method.
 _RULES: list[tuple[str, str, list[str]]] = [
-    # POST /evidence — artifact creation (investigator + forensic_analyst)
-    ("POST",   r"^/evidence/?$",              ["investigator", "forensic_analyst"]),
-    # POST /evidence/*/verify — integrity check (investigator + forensic_analyst)
-    ("POST",   r"^/evidence/[^/]+/verify/?$", ["investigator", "forensic_analyst"]),
-    # GET  /evidence/* — read access (investigator + forensic_analyst)
-    ("GET",    r"^/evidence",                 ["investigator", "forensic_analyst"]),
-    # GET  /custody/* — chain-of-custody read (legal_reviewer only)
-    ("GET",    r"^/custody",                  ["legal_reviewer"]),
-    # POST /reports/* — report generation (legal_reviewer)
-    ("POST",   r"^/reports",                  ["legal_reviewer"]),
-    # GET  /reports/* — report read (legal_reviewer)
-    ("GET",    r"^/reports",                  ["legal_reviewer"]),
-    # /admin — user management (admin only)
-    ("GET",    r"^/admin",                    ["admin"]),
-    ("POST",   r"^/admin",                    ["admin"]),
-    ("PATCH",  r"^/admin",                    ["admin"]),
-    ("DELETE", r"^/admin",                    ["admin"]),
+    # POST /evidence — upload (investigator + forensic_analyst)
+    ("POST",   r"^/evidence/?$",                    ["investigator", "forensic_analyst"]),
+    # POST /evidence/*/verify — verification (investigator + forensic_analyst + legal_reviewer)
+    ("POST",   r"^/evidence/[^/]+/verify/?$",       ["investigator", "forensic_analyst", "legal_reviewer"]),
+    # GET /evidence/*/download — file download (investigator + forensic_analyst only)
+    ("GET",    r"^/evidence/[^/]+/download/?$",     ["investigator", "forensic_analyst"]),
+    # GET /evidence/* — metadata read (all non-admin; fine-grained control in domain service)
+    ("GET",    r"^/evidence",                       ["investigator", "forensic_analyst", "legal_reviewer"]),
+    # GET /cases — case list for upload dropdown
+    ("GET",    r"^/cases",                          ["investigator", "forensic_analyst", "legal_reviewer"]),
+    # GET /custody/* — chain-of-custody (legal_reviewer only)
+    ("GET",    r"^/custody",                        ["legal_reviewer"]),
+    # POST/GET /reports/* — audit reports (legal_reviewer only)
+    ("POST",   r"^/reports",                        ["legal_reviewer"]),
+    ("GET",    r"^/reports",                        ["legal_reviewer"]),
+    # /admin — user + case management (admin only)
+    ("GET",    r"^/admin",                          ["admin"]),
+    ("POST",   r"^/admin",                          ["admin"]),
+    ("PATCH",  r"^/admin",                          ["admin"]),
+    ("DELETE", r"^/admin",                          ["admin"]),
 ]
 
 
