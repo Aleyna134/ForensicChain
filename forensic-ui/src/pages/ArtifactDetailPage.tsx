@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { downloadArtifact, getArtifact, verifyArtifact, type Artifact, type VerificationResult } from '../api/evidence'
@@ -65,7 +66,21 @@ export default function ArtifactDetailPage() {
       const result = await verifyArtifact(id, file)
       setVerifyResult(result)
     } catch (err: unknown) {
-      setVerifyError(err instanceof Error ? err.message : 'Verification failed')
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status
+        if (status === 503 || status === 502)
+          setVerifyError('One or more verification services are temporarily unavailable. Please try again in a moment.')
+        else if (status === 500)
+          setVerifyError('An error occurred during verification. Please try again.')
+        else if (status === 400)
+          setVerifyError('Invalid request. Please make sure you selected the correct file.')
+        else if (status === 404)
+          setVerifyError('Artifact not found.')
+        else
+          setVerifyError('Verification failed. Please try again.')
+      } else {
+        setVerifyError('Verification failed. Please try again.')
+      }
     } finally {
       setVerifying(false)
     }

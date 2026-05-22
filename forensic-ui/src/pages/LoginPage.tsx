@@ -4,12 +4,8 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { getRole, isAuthenticated } from '../hooks/useAuth'
 
-function redirectForRole(role: string | null): string {
-  switch (role) {
-    case 'investigator': return '/artifacts/upload'
-    case 'admin':        return '/admin/users'
-    default:             return '/'
-  }
+function redirectForRole(_role: string | null): string {
+  return '/'
 }
 
 // ── Network visualization ─────────────────────────────────────────────────────
