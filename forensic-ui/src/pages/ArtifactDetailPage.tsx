@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { downloadArtifact, getArtifact, verifyArtifact, type Artifact, type VerificationResult } from '../api/evidence'
 import { getTimeline, type Timeline } from '../api/custody'
+import FilePickerInput from '../components/FilePickerInput'
 import Layout from '../components/Layout'
 import StatusBadge from '../components/StatusBadge'
 import { getRole } from '../hooks/useAuth'
@@ -72,8 +73,16 @@ export default function ArtifactDetailPage() {
 
   return (
     <Layout>
-      <div className="max-w-3xl space-y-6">
-        <h1 className="text-2xl font-bold text-gray-900">Artifact Detail</h1>
+      <div className="max-w-5xl space-y-6">
+        <div className="flex items-center gap-2">
+          <Link to="/artifacts" className="text-slate-400 hover:text-slate-600 transition-colors">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">Artifact Detail</h1>
+        </div>
 
         {fetchError && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -96,12 +105,15 @@ export default function ArtifactDetailPage() {
                   ['Type', artifact.artifact_type],
                   ['Size', `${artifact.file_size} B`],
                   ['Hash algo', artifact.hash_algorithm],
+                  ['Uploaded by', artifact.uploaded_by],
                   ['Uploaded', artifact.uploaded_at?.slice(0, 19).replace('T', ' ')],
                 ] as [string, string | null | undefined][]
               ).map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-gray-400">{label}</dt>
-                  <dd className="text-gray-700 font-mono truncate">{value ?? '—'}</dd>
+                  <dd className={`text-gray-700 font-mono ${label === 'File' ? 'break-all' : 'truncate'}`}>
+                    {value ?? '—'}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -150,8 +162,9 @@ export default function ArtifactDetailPage() {
         {/* ── Verify integrity ─────────────────────────────────────── */}
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           <h2 className="font-semibold text-gray-800 mb-3">Verify Integrity</h2>
-          <form onSubmit={handleVerify} className="flex items-center gap-3 flex-wrap">
-            <input ref={fileRef} type="file" className="text-sm text-gray-600" />
+
+          <form onSubmit={handleVerify} className="flex items-center gap-3 flex-wrap mb-3">
+            <FilePickerInput inputRef={fileRef} />
             <button
               type="submit"
               disabled={verifying}
@@ -166,11 +179,39 @@ export default function ArtifactDetailPage() {
           )}
 
           {verifyResult && (
-            <div className="mt-3 space-y-2">
-              <StatusBadge status={verifyResult.verification_result} />
-              <pre className="text-xs text-gray-600 bg-gray-50 rounded-md p-3 overflow-auto whitespace-pre-wrap break-all">
-                {JSON.stringify(verifyResult, null, 2)}
-              </pre>
+            <div className="mt-4 rounded-lg border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Verification Result
+                </span>
+                <StatusBadge status={verifyResult.verification_result} />
+              </div>
+              <dl className="divide-y divide-gray-100">
+                {(
+                  [
+                    ['Original Hash',      verifyResult.original_hash],
+                    ['Current Hash',       verifyResult.current_hash],
+                    ['Signature Valid',    verifyResult.signature_valid    ? 'Yes' : 'No'],
+                    ['Ledger Chain Valid', verifyResult.ledger_chain_valid ? 'Yes' : 'No'],
+                    ['Verified At',        new Date(verifyResult.verified_at).toLocaleString()],
+                  ] as [string, string][]
+                ).map(([label, value]) => (
+                  <div key={label} className="flex items-baseline px-4 py-2.5 gap-4">
+                    <dt className="w-40 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      {label}
+                    </dt>
+                    <dd className="text-sm text-gray-700 font-mono break-all">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <details className="border-t border-gray-100">
+                <summary className="px-4 py-2.5 cursor-pointer text-xs text-gray-400 hover:text-gray-600 select-none">
+                  Raw JSON
+                </summary>
+                <pre className="px-4 pb-3 text-xs text-gray-600 bg-gray-50 overflow-auto whitespace-pre-wrap break-all">
+                  {JSON.stringify(verifyResult, null, 2)}
+                </pre>
+              </details>
             </div>
           )}
         </section>
