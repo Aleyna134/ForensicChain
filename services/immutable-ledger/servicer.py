@@ -13,20 +13,21 @@ logger = logging.getLogger(__name__)
 
 class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
     
-    def _append_record(self, raw_payload: dict, artifact_id: str, case_id: str, record_type: str, 
+    def _append_record(self, raw_payload: dict, artifact_id: str, case_id: str, record_type: str,
                        hash_algorithm=None, hash_value=None, signature_algorithm=None, signature_value=None, signer_id=None):
         with SessionLocal() as db:
             try:
-                # Lock the state row for concurrency
-                state_query = text("SELECT last_record_hash FROM ledger_state WHERE id = 1 FOR UPDATE")
-                result = db.execute(state_query).mappings().fetchone()
-                
-                if result:
-                    previous_record_hash = result["last_record_hash"]
-                else:
-                    previous_record_hash = None
-                    # Attempt to insert initial state if missing
-                    db.execute(text("INSERT INTO ledger_state (id, last_record_hash) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING"))
+                # Ensure a state row exists for this case, then lock it.
+                db.execute(
+                    text("INSERT INTO ledger_state (case_id, last_record_hash) VALUES (:c, NULL) ON CONFLICT (case_id) DO NOTHING"),
+                    {"c": case_id},
+                )
+                result = db.execute(
+                    text("SELECT last_record_hash FROM ledger_state WHERE case_id = :c FOR UPDATE"),
+                    {"c": case_id},
+                ).mappings().fetchone()
+
+                previous_record_hash = result["last_record_hash"] if result else None
 
                 # Compute hashes
                 payload_hash, record_hash = create_hash_chain_entry(raw_payload, previous_record_hash)
@@ -48,16 +49,18 @@ class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
                     previous_record_hash=previous_record_hash,
                     record_hash=record_hash,
                     raw_payload=raw_payload,
-                    created_at=now
+                    created_at=now,
                 )
                 db.add(new_record)
 
-                # Update ledger state
-                update_state = text("UPDATE ledger_state SET last_record_hash = :h, updated_at = :now WHERE id = 1")
-                db.execute(update_state, {"h": record_hash, "now": now})
-                
+                # Advance this case's chain head
+                db.execute(
+                    text("UPDATE ledger_state SET last_record_hash = :h, updated_at = :now WHERE case_id = :c"),
+                    {"h": record_hash, "now": now, "c": case_id},
+                )
+
                 db.commit()
-                
+
                 return ledger_pb2.ProofRecordResponse(
                     record_id=str(record_id),
                     artifact_id=artifact_id,
@@ -67,7 +70,7 @@ class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
                     record_hash=record_hash,
                     created_at=now.isoformat(),
                     success=True,
-                    error_message=""
+                    error_message="",
                 )
             except Exception as e:
                 db.rollback()
@@ -76,7 +79,7 @@ class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
                     artifact_id=artifact_id,
                     record_type=record_type,
                     success=False,
-                    error_message=str(e)
+                    error_message=str(e),
                 )
 
     def AppendProofRecord(self, request, context):
@@ -157,50 +160,63 @@ class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
             )
 
     def ValidateLedgerChain(self, request, context):
+        case_id = request.case_id.strip() if request.case_id else ""
+        if not case_id:
+            return ledger_pb2.ValidateLedgerResponse(
+                chain_valid=False,
+                checked_records=0,
+                error_message="case_id is required for chain validation",
+            )
         try:
             with SessionLocal() as db:
-                records = db.query(LedgerRecord).order_by(LedgerRecord.created_at.asc()).all()
-                
+                records = (
+                    db.query(LedgerRecord)
+                    .filter(LedgerRecord.case_id == case_id)
+                    .order_by(LedgerRecord.created_at.asc())
+                    .all()
+                )
+
                 checked_records = 0
                 expected_prev_hash = None
-                
+
                 for record in records:
-                    # 1. Verify previous hash continuity
+                    # 1. Chain linkage
                     if record.previous_record_hash != expected_prev_hash:
                         return ledger_pb2.ValidateLedgerResponse(
                             chain_valid=False,
                             checked_records=checked_records,
-                            error_message=f"Broken chain at record {record.record_id}: expected prev_hash {expected_prev_hash}, got {record.previous_record_hash}"
+                            error_message=f"Broken chain at record {record.record_id}: expected prev_hash {expected_prev_hash}, got {record.previous_record_hash}",
                         )
-                    
-                    # 2. Recompute hashes from raw_payload
+
+                    # 2. Payload integrity
                     recomputed_payload_hash = compute_payload_hash(record.raw_payload)
                     if recomputed_payload_hash != record.payload_hash:
                         return ledger_pb2.ValidateLedgerResponse(
                             chain_valid=False,
                             checked_records=checked_records,
-                            error_message=f"Corrupted payload hash at record {record.record_id}"
+                            error_message=f"Corrupted payload hash at record {record.record_id}",
                         )
-                        
+
+                    # 3. Record hash integrity
                     recomputed_record_hash = compute_record_hash(recomputed_payload_hash, record.previous_record_hash)
                     if recomputed_record_hash != record.record_hash:
                         return ledger_pb2.ValidateLedgerResponse(
                             chain_valid=False,
                             checked_records=checked_records,
-                            error_message=f"Corrupted record hash at record {record.record_id}"
+                            error_message=f"Corrupted record hash at record {record.record_id}",
                         )
-                        
+
                     expected_prev_hash = record.record_hash
                     checked_records += 1
-                
+
                 return ledger_pb2.ValidateLedgerResponse(
                     chain_valid=True,
                     checked_records=checked_records,
-                    error_message=""
+                    error_message="",
                 )
         except Exception as e:
-             return ledger_pb2.ValidateLedgerResponse(
-                 chain_valid=False,
-                 checked_records=0,
-                 error_message=str(e)
-             )
+            return ledger_pb2.ValidateLedgerResponse(
+                chain_valid=False,
+                checked_records=0,
+                error_message=str(e),
+            )
