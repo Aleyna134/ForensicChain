@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { type AdminUser, type CreateUserBody, createUser, deleteUser, getUsers } from '../api/admin'
 import {
   type Case, type CaseAssignment,
-  createAssignment, createCase, deleteAssignment, deleteCase,
+  createAssignment, createCase, deleteAssignment,
   listAdminCases, listAssignments, updateCaseStatus,
 } from '../api/cases'
 import Layout from '../components/Layout'
@@ -225,7 +225,7 @@ function AssignmentsModal({
   const [assignments, setAssignments] = useState<CaseAssignment[]>([])
   const [loading,     setLoading]     = useState(true)
   const [username,    setUsername]    = useState('')
-  const [roleInCase,  setRoleInCase]  = useState('forensic_analyst')
+  const [roleInCase,  setRoleInCase]  = useState('')
   const [error,       setError]       = useState<string | null>(null)
   const [saving,      setSaving]      = useState(false)
 
@@ -322,7 +322,12 @@ function AssignmentsModal({
         <form onSubmit={handleAssign} className="flex gap-2 flex-wrap items-end">
           <div className="flex-1 min-w-[140px]">
             <label className="block text-[10px] font-bold text-slate-500 tracking-[0.18em] uppercase mb-1">User</label>
-            <select value={username} onChange={(e) => setUsername(e.target.value)}
+            <select value={username}
+                    onChange={(e) => {
+                      setUsername(e.target.value)
+                      const u = assignableUsers.find((u) => u.username === e.target.value)
+                      if (u) setRoleInCase(u.role)
+                    }}
                     disabled={saving}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
                                focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400
@@ -335,15 +340,9 @@ function AssignmentsModal({
           </div>
           <div className="min-w-[160px]">
             <label className="block text-[10px] font-bold text-slate-500 tracking-[0.18em] uppercase mb-1">Role in Case</label>
-            <select value={roleInCase} onChange={(e) => setRoleInCase(e.target.value)}
-                    disabled={saving}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
-                               focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400
-                               disabled:opacity-50 transition-all">
-              <option value="investigator">Investigator</option>
-              <option value="forensic_analyst">Forensic Analyst</option>
-              <option value="legal_reviewer">Legal Reviewer</option>
-            </select>
+            <input readOnly value={roleInCase || '—'}
+                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                              bg-slate-50 text-slate-500 cursor-default" />
           </div>
           <button type="submit" disabled={saving || !username}
                   className="px-4 py-2 rounded-lg bg-slate-800 text-sm font-semibold text-white
@@ -507,15 +506,6 @@ function CasesTab({ users }: { users: AdminUser[] }) {
     setOpenMenu(openMenu === id ? null : id)
   }
 
-  async function handleDelete(id: string, caseNumber: string) {
-    setOpenMenu(null)
-    if (!window.confirm(`Delete case "${caseNumber}"? All assignments will be removed.`)) return
-    try {
-      await deleteCase(id)
-      setCases((prev) => prev.filter((c) => c.id !== id))
-    } catch { alert('Failed to delete case.') }
-  }
-
   async function handleToggleStatus(c: Case) {
     setOpenMenu(null)
     const newStatus = c.status === 'OPEN' ? 'CLOSED' : 'OPEN'
@@ -620,14 +610,6 @@ function CasesTab({ users }: { users: AdminUser[] }) {
                       <path d="M9 12l2 2 4-4" />
                     </svg>
                     {c.status === 'OPEN' ? 'Close Case' : 'Reopen Case'}
-                  </button>
-                  <button onClick={() => handleDelete(c.id, c.case_number)}
-                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors">
-                    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                    </svg>
-                    Delete Case
                   </button>
                 </>
               )
