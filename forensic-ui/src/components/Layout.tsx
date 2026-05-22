@@ -14,7 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/artifacts',        label: 'My Artifacts',     roles: ['investigator'] },
   { to: '/artifacts',        label: 'Evidence List',    roles: ['forensic_analyst'] },
   { to: '/artifacts',        label: 'Evidence List',    roles: ['legal_reviewer'] },
-  { to: '/ledger',           label: 'Ledger Chain',     roles: ['legal_reviewer', 'admin'] },
+  { to: '/ledger',           label: 'Ledger Chain',     roles: ['legal_reviewer'] },
   { to: '/admin/users',      label: 'User Management',  roles: ['admin'] },
 ]
 

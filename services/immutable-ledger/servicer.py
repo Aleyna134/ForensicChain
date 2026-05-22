@@ -172,7 +172,7 @@ class LedgerServicer(ledger_pb2_grpc.LedgerServiceServicer):
                 records = (
                     db.query(LedgerRecord)
                     .filter(LedgerRecord.case_id == case_id)
-                    .order_by(LedgerRecord.created_at.asc())
+                    .order_by(LedgerRecord.created_at.asc(), LedgerRecord.record_id.asc())
                     .all()
                 )
 
