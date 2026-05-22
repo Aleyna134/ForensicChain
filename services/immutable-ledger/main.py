@@ -42,13 +42,16 @@ def health_check():
 
 # Lightweight REST wrapper around gRPC logic for Audit Reporter
 @app.get("/ledger/artifacts/{artifactId}")
-def get_proof_by_artifact(artifactId: str):
+async def get_proof_by_artifact(artifactId: str, request: Request):
     import ledger_pb2
     req = ledger_pb2.ArtifactProofRequest(artifact_id=artifactId)
     resp = servicer_instance.GetProofByArtifactId(req, None)
     if not resp.success:
         raise HTTPException(status_code=404, detail=resp.error_message)
-    
+    # Internal service calls (audit-reporter → ledger, no role header) bypass access
+    # control. Gateway-routed calls carry X-User-Role and must pass assignment check.
+    if request.headers.get("X-User-Role"):
+        await _require_ledger_access(request, resp.case_id)
     return {
         "record_id": resp.record_id,
         "artifact_id": resp.artifact_id,
@@ -58,7 +61,7 @@ def get_proof_by_artifact(artifactId: str):
         "signature_algorithm": resp.signature_algorithm,
         "signature_value": resp.signature_value,
         "signer_id": resp.signer_id,
-        "record_hash": resp.record_hash
+        "record_hash": resp.record_hash,
     }
 
 @app.get("/ledger/records/{case_id}")
