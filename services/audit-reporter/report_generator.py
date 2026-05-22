@@ -80,7 +80,8 @@ async def build_report(
 
     # Anchor the report's SHA-256 hash in the immutable ledger (best-effort).
     # Failure does not block report delivery — the report_db hash still provides
-    # local tamper detection; the ledger entry adds global chain anchoring.
+    # local tamper detection; the ledger entry anchors the report hash in the
+    # case-level ledger chain.
     case_id: str = artifact.get("case_id") or ""
     success, ledger_record_id, err = await append_report_proof_async(
         report_id=report_id,
