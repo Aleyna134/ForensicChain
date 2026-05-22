@@ -109,10 +109,10 @@ async def append_verification_record_async(
     )
 
 
-def validate_ledger_chain(timeout: int = 30) -> Tuple[bool, bool, str]:
+def validate_ledger_chain(case_id: str, timeout: int = 30) -> Tuple[bool, bool, str]:
     """Returns: (success, is_valid, error_message)"""
     try:
-        request = ledger_pb2.ValidateLedgerRequest(full_validation=True)
+        request = ledger_pb2.ValidateLedgerRequest(case_id=case_id)
         response = _stub.ValidateLedgerChain(request, timeout=timeout)
         return True, response.chain_valid, response.error_message
     except grpc.RpcError as e:
@@ -121,5 +121,5 @@ def validate_ledger_chain(timeout: int = 30) -> Tuple[bool, bool, str]:
         return False, False, f"Internal Error: {str(e)}"
 
 
-async def validate_ledger_chain_async(timeout: int = 30) -> Tuple[bool, bool, str]:
-    return await asyncio.to_thread(validate_ledger_chain, timeout)
+async def validate_ledger_chain_async(case_id: str, timeout: int = 30) -> Tuple[bool, bool, str]:
+    return await asyncio.to_thread(validate_ledger_chain, case_id, timeout)

@@ -334,8 +334,8 @@ async def verify_evidence(
         if not vs_success:
             raise HTTPException(status_code=503, detail=f"Signature verification failed: {vs_error}")
 
-        # Step 4: Validate full ledger chain integrity
-        lv_success, is_valid_chain, lv_error = await validate_ledger_chain_async(timeout=15)
+        # Step 4: Validate this case's ledger chain integrity
+        lv_success, is_valid_chain, lv_error = await validate_ledger_chain_async(case_id=artifact.case_id, timeout=15)
         if not lv_success:
             raise HTTPException(status_code=503, detail=f"Ledger validation check failed: {lv_error}")
 
