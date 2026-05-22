@@ -9,12 +9,12 @@ import DashboardPage from './pages/DashboardPage'
 import LoginPage from './pages/LoginPage'
 import ReportPage from './pages/ReportPage'
 import UnauthorizedPage from './pages/UnauthorizedPage'
-import { getRole, isAuthenticated } from './hooks/useAuth'
+import { isAuthenticated } from './hooks/useAuth'
 
 // Redirects to the role's home page — used by the catch-all route
 function RoleHome() {
   if (!isAuthenticated()) return <Navigate to="/login" replace />
-  return <Navigate to={getRole() === 'admin' ? '/admin/users' : '/'} replace />
+  return <Navigate to="/" replace />
 }
 
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
         {/* ── investigator + forensic_analyst + legal_reviewer ──────── */}
-        <Route element={<ProtectedRoute allowedRoles={['investigator', 'forensic_analyst', 'legal_reviewer']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['investigator', 'forensic_analyst', 'legal_reviewer', 'admin']} />}>
           <Route path="/"               element={<DashboardPage />} />
           <Route path="/cases/:caseId"  element={<CasesPage />} />
         </Route>

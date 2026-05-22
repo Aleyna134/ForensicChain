@@ -58,6 +58,7 @@ async def generate_report(
     db: Session = Depends(get_db),
 ) -> ReportOut:
     actor_id, actor_role, corr_id = _get_identity(request)
+    ip_address = request.client.host if request.client else None
 
     case_id = await get_artifact_case_id(artifact_id)
     if not case_id:
@@ -99,6 +100,7 @@ async def generate_report(
     report = Report(
         report_id=report_id,
         artifact_id=artifact_id,
+        case_id=case_id,
         generated_by=actor_id,
         generated_at=datetime.now(timezone.utc),
         format="PDF",
@@ -124,6 +126,7 @@ async def generate_report(
             "report_id": report_id,
             "report_hash": report_hash,
             "report_format": "PDF",
+            "ip_address": ip_address,
         },
     )
 
@@ -238,6 +241,7 @@ async def verify_report(
     db: Session = Depends(get_db),
 ) -> ReportVerifyOut:
     actor_id, actor_role, corr_id = _get_identity(request)
+    ip_address = request.client.host if request.client else None
 
     report = get_report(db, report_id)
     if not report:
@@ -268,6 +272,7 @@ async def verify_report(
             "report_valid": report_valid,
             "stored_hash": report.report_hash,
             "current_hash": current_hash,
+            "ip_address": ip_address,
         },
     )
 

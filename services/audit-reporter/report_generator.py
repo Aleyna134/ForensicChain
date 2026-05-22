@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,9 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
 from clients import custody_client, evidence_client, ledger_client
+from grpc_clients.ledger_write_client import append_report_proof_async
+
+logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STORAGE_PATH: str = os.environ.get("REPORT_STORAGE_PATH", "/report-storage")
@@ -73,5 +77,21 @@ async def build_report(
     storage_path = Path(_STORAGE_PATH) / f"{report_id}.pdf"
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(pdf_bytes)
+
+    # Anchor the report's SHA-256 hash in the immutable ledger (best-effort).
+    # Failure does not block report delivery — the report_db hash still provides
+    # local tamper detection; the ledger entry adds global chain anchoring.
+    case_id: str = artifact.get("case_id") or ""
+    success, ledger_record_id, err = await append_report_proof_async(
+        report_id=report_id,
+        case_id=case_id,
+        report_hash=report_hash,
+        generated_by=generated_by,
+        generated_at=generated_at,
+    )
+    if not success:
+        logger.warning("Could not anchor report %s in ledger: %s", report_id, err)
+    else:
+        logger.info("Report %s anchored in ledger as record %s", report_id, ledger_record_id)
 
     return pdf_bytes, report_hash, str(storage_path)

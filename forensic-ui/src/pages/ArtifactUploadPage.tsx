@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listCases, type Case } from '../api/cases'
@@ -275,7 +276,23 @@ export default function ArtifactUploadPage() {
     try {
       setResult(await uploadArtifact(fd))
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.')
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status
+        if (status === 503 || status === 502)
+          setError('The ingestion service is temporarily unavailable. Please try again in a moment.')
+        else if (status === 500)
+          setError('An internal server error occurred. Please try again.')
+        else if (status === 413)
+          setError('File is too large to upload.')
+        else if (status === 403)
+          setError('You do not have permission to upload to this case.')
+        else if (status === 400)
+          setError('Invalid request. Please check the form fields and try again.')
+        else
+          setError('Upload failed. Please try again.')
+      } else {
+        setError('Upload failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
