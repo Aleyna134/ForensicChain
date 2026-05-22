@@ -36,8 +36,8 @@ export default function App() {
           <Route path="/artifacts/upload" element={<ArtifactUploadPage />} />
         </Route>
 
-        {/* ── investigator + forensic_analyst ───────────────────────── */}
-        <Route element={<ProtectedRoute allowedRoles={['investigator', 'forensic_analyst']} />}>
+        {/* ── investigator + forensic_analyst + legal_reviewer ─────── */}
+        <Route element={<ProtectedRoute allowedRoles={['investigator', 'forensic_analyst', 'legal_reviewer']} />}>
           <Route path="/artifacts"     element={<ArtifactListPage />} />
           <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
         </Route>

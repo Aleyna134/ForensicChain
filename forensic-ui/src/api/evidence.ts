@@ -11,6 +11,7 @@ export interface Artifact {
   hash_value: string | null
   signature_value: string | null
   ledger_record_id: string | null
+  uploaded_by: string | null
   status: 'PENDING' | 'INGESTED' | 'INGESTION_FAILED'
   uploaded_at: string | null
 }
