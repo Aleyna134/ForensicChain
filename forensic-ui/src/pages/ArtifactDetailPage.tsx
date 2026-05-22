@@ -34,7 +34,7 @@ export default function ArtifactDetailPage() {
         setFetchError(err instanceof Error ? err.message : 'Failed to load artifact'),
       )
 
-    // Custody timeline is only accessible to forensic_analyst and legal_reviewer.
+    // Custody timeline is only accessible to legal_reviewer.
     // For investigator role this returns 403 — load it independently so a rejection
     // here doesn't block the artifact detail view.
     getTimeline(id)
