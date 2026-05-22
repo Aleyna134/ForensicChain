@@ -45,6 +45,7 @@ async def upload_evidence(
     actor_id = request.headers.get("X-User-Id", "unknown")
     actor_role = request.headers.get("X-User-Role", "unknown")
     corr_id_str = request.headers.get("X-Correlation-Id", str(uuid.uuid4()))
+    ip_address = request.client.host if request.client else None
 
     assigned = await get_assigned_case_numbers(actor_id)
     if case_id not in assigned:
@@ -152,6 +153,7 @@ async def upload_evidence(
                 "hash_algorithm": artifact.hash_algorithm,
                 "hash_value": artifact.hash_value,
                 "ledger_record_id": str(artifact.ledger_record_id),
+                "ip_address": ip_address,
             },
         }
 
@@ -253,6 +255,7 @@ async def verify_evidence(
     actor_id = request.headers.get("X-User-Id", "unknown")
     actor_role = request.headers.get("X-User-Role", "unknown")
     corr_id_str = request.headers.get("X-Correlation-Id", str(uuid.uuid4()))
+    ip_address = request.client.host if request.client else None
     try:
         corr_id = uuid.UUID(corr_id_str)
     except ValueError:
@@ -286,6 +289,7 @@ async def verify_evidence(
         event_type="VerificationRequested",
         routing_key=_VERIFICATION_ROUTING_KEYS["VerificationRequested"],
         reason="Integrity verification requested",
+        ip_address=ip_address,
     )
 
     verification_id = uuid.uuid4()
@@ -369,6 +373,7 @@ async def verify_evidence(
             original_hash=orig_hash,
             current_hash=current_hash,
             ledger_record_id=ver_record_id,
+            ip_address=ip_address,
         )
 
         return {
@@ -556,6 +561,7 @@ def _write_verification_outbox(
     original_hash: str,
     current_hash: str,
     ledger_record_id: str = "",
+    ip_address: str | None = None,
 ) -> None:
     event_id = str(uuid.uuid4())
     timestamp_iso = datetime.now(timezone.utc).isoformat()
@@ -582,6 +588,7 @@ def _write_verification_outbox(
             "original_hash": original_hash,
             "current_hash": current_hash,
             "ledger_record_id": ledger_record_id,
+            "ip_address": ip_address,
         },
     }
     try:

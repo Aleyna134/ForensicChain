@@ -9,7 +9,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/',                 label: 'Dashboard',        roles: ['investigator', 'forensic_analyst', 'legal_reviewer'] },
+  { to: '/',                 label: 'Dashboard',        roles: ['investigator', 'forensic_analyst', 'legal_reviewer', 'admin'] },
   { to: '/artifacts/upload', label: 'Upload Evidence',  roles: ['investigator', 'forensic_analyst'] },
   { to: '/artifacts',        label: 'My Artifacts',     roles: ['investigator'] },
   { to: '/artifacts',        label: 'Evidence List',    roles: ['forensic_analyst'] },
@@ -35,11 +35,39 @@ export default function Layout({ children }: Props) {
       <aside className="w-56 flex-shrink-0 flex flex-col bg-slate-800 text-slate-100">
 
         {/* Wordmark */}
-        <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2">
-          <svg className="w-4 h-4 text-blue-400 flex-shrink-0" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            <path d="M9 12l2 2 4-4" />
+        <div className="px-5 py-4 border-b border-slate-700 flex items-center gap-2.5">
+          <svg className="w-7 h-7 flex-shrink-0" viewBox="0 0 28 28" fill="none">
+            {/* Shield — heraldic pointed base */}
+            <path
+              d="M14 2.5L4.5 6.5V14c0 6 4.2 11 9.5 12.5C19.3 25 23.5 20 23.5 14V6.5L14 2.5z"
+              fill="url(#shield-fill)" stroke="url(#shield-stroke)" strokeWidth="1.6"
+              strokeLinejoin="round"
+            />
+            {/* Top chain block */}
+            <rect x="10.5" y="8.5" width="7" height="4.5" rx="2"
+              fill="none" stroke="#93c5fd" strokeWidth="1.5"
+            />
+            {/* Chain connector */}
+            <line x1="14" y1="13" x2="14" y2="15.5"
+              stroke="#93c5fd" strokeWidth="1.6" strokeLinecap="round"
+            />
+            {/* Bottom chain block */}
+            <rect x="10.5" y="15.5" width="7" height="4.5" rx="2"
+              fill="none" stroke="#93c5fd" strokeWidth="1.5"
+            />
+            {/* Small dot in each block — "sealed" indicator */}
+            <circle cx="14" cy="10.75" r="0.8" fill="#bfdbfe" />
+            <circle cx="14" cy="17.75" r="0.8" fill="#bfdbfe" />
+            <defs>
+              <linearGradient id="shield-fill" x1="14" y1="2.5" x2="14" y2="27" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.22" />
+                <stop offset="100%" stopColor="#1d4ed8" stopOpacity="0.08" />
+              </linearGradient>
+              <linearGradient id="shield-stroke" x1="14" y1="2.5" x2="14" y2="27" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#93c5fd" />
+                <stop offset="100%" stopColor="#60a5fa" />
+              </linearGradient>
+            </defs>
           </svg>
           <span className="font-bold text-base tracking-tight">ForensicChain</span>
         </div>
