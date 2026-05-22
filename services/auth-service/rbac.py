@@ -38,8 +38,8 @@ _RULES: list[tuple[str, str, list[str]]] = [
     # POST/GET /reports/* — audit reports (legal_reviewer only)
     ("POST",   r"^/reports",                        ["legal_reviewer"]),
     ("GET",    r"^/reports",                        ["legal_reviewer"]),
-    # GET /ledger/* — immutable ledger viewer (legal_reviewer + admin)
-    ("GET",    r"^/ledger",                         ["legal_reviewer", "admin"]),
+    # GET /ledger/* — immutable ledger viewer (legal_reviewer only)
+    ("GET",    r"^/ledger",                         ["legal_reviewer"]),
     # /admin — user + case management (admin only)
     ("GET",    r"^/admin",                          ["admin"]),
     ("POST",   r"^/admin",                          ["admin"]),

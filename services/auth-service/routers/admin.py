@@ -199,23 +199,6 @@ async def update_case_status(
     return case
 
 
-@router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_case(
-    case_id: str,
-    x_user_role: str | None = Header(default=None, alias="x-user-role"),
-    db: AsyncSession = Depends(get_db),
-):
-    _require_admin(x_user_role)
-
-    result = await db.execute(select(Case).where(Case.id == case_id))
-    case = result.scalar_one_or_none()
-    if not case:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
-
-    await db.delete(case)
-    await db.commit()
-
-
 # ── Case Assignments ───────────────────────────────────────────────────────────
 
 @router.get("/cases/{case_id}/assignments", response_model=list[AssignmentOut])
@@ -255,8 +238,14 @@ async def create_assignment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
 
     user_result = await db.execute(select(User).where(User.username == body.username))
-    if not user_result.scalar_one_or_none():
+    user = user_result.scalar_one_or_none()
+    if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.role != body.role_in_case:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"role_in_case must match user's global role ({user.role})",
+        )
 
     assignment = CaseAssignment(
         case_id=case_id,

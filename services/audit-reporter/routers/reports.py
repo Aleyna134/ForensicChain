@@ -26,6 +26,14 @@ def _get_identity(request: Request) -> tuple[str, str, str]:
     return actor_id, actor_role, corr_id
 
 
+async def _require_report_case_access(report, actor_id: str) -> None:
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    assigned = await get_assigned_case_numbers(actor_id)
+    if report.case_id not in assigned:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this case")
+
+
 def _get_exchange(request: Request) -> aio_pika.abc.AbstractExchange:
     return request.app.state.rabbitmq_exchange
 
@@ -174,13 +182,14 @@ async def list_reports_by_artifact(
 
 
 @router.get("/{report_id}", response_model=ReportOut)
-def get_report_metadata(
+async def get_report_metadata(
     report_id: str,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> ReportOut:
+    actor_id, _, _ = _get_identity(request)
     report = get_report(db, report_id)
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    await _require_report_case_access(report, actor_id)
 
     return ReportOut(
         report_id=report.report_id,
@@ -203,8 +212,7 @@ async def download_report(
     actor_id, actor_role, corr_id = _get_identity(request)
 
     report = get_report(db, report_id)
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    await _require_report_case_access(report, actor_id)
 
     if not report.storage_path or not Path(report.storage_path).exists():
         raise HTTPException(
@@ -244,8 +252,7 @@ async def verify_report(
     ip_address = request.client.host if request.client else None
 
     report = get_report(db, report_id)
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    await _require_report_case_access(report, actor_id)
 
     if not report.storage_path or not Path(report.storage_path).exists():
         raise HTTPException(
