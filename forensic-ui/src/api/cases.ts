@@ -44,10 +44,6 @@ export async function updateCaseStatus(caseId: string, status: 'OPEN' | 'CLOSED'
   return res.data
 }
 
-export async function deleteCase(caseId: string): Promise<void> {
-  await client.delete(`/admin/cases/${caseId}`)
-}
-
 export async function listAssignments(caseId: string): Promise<CaseAssignment[]> {
   const res = await client.get<CaseAssignment[]>(`/admin/cases/${caseId}/assignments`)
   return res.data

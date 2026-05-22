@@ -43,11 +43,6 @@ export default function App() {
           <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
         </Route>
 
-        {/* ── forensic_analyst + legal_reviewer ─────────────────────── */}
-        <Route element={<ProtectedRoute allowedRoles={['forensic_analyst', 'legal_reviewer']} />}>
-          <Route path="/custody/:artifactId" element={<CasesPage />} />
-        </Route>
-
         {/* ── legal_reviewer only ─────────────────────────────────────── */}
         <Route element={<ProtectedRoute allowedRoles={['legal_reviewer']} />}>
           <Route path="/ledger" element={<LedgerPage />} />
