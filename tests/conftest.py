@@ -20,7 +20,7 @@ EVIDENCE_CONTENT = b"ForensicChain automated test evidence payload."
 
 
 def _login(username: str, password: str) -> str:
-    r = requests.post(f"{BASE_URL}/auth/login", json={"username": username, "password": password})
+    r = requests.post(f"{BASE_URL}/auth/login", json={"username": username, "password": password}, timeout=10)
     assert r.status_code == 200, f"Login failed for {username}: {r.text}"
     return r.json()["access_token"]
 
@@ -60,11 +60,12 @@ def setup_case_and_artifact(admin_token, investigator_token) -> dict:
         f"{BASE_URL}/admin/cases",
         json={"case_number": TEST_CASE_NUMBER, "title": TEST_CASE_TITLE},
         headers=_auth(admin_token),
+        timeout=10,
     )
     assert r.status_code in (201, 409), f"Create case: {r.text}"
 
     # Fetch case id
-    r = requests.get(f"{BASE_URL}/admin/cases", headers=_auth(admin_token))
+    r = requests.get(f"{BASE_URL}/admin/cases", headers=_auth(admin_token), timeout=10)
     assert r.status_code == 200
     cases = r.json()
     case = next((c for c in cases if c["case_number"] == TEST_CASE_NUMBER), None)
@@ -81,6 +82,7 @@ def setup_case_and_artifact(admin_token, investigator_token) -> dict:
             f"{BASE_URL}/admin/cases/{case_id}/assignments",
             json={"username": username, "role_in_case": role},
             headers=_auth(admin_token),
+            timeout=10,
         )
         assert r.status_code in (201, 409), f"Assign {username}: {r.text}"
 
@@ -95,6 +97,7 @@ def setup_case_and_artifact(admin_token, investigator_token) -> dict:
         },
         files={"file": ("test_evidence.bin", io.BytesIO(EVIDENCE_CONTENT), "application/octet-stream")},
         headers=_auth(investigator_token),
+        timeout=60,
     )
     assert r.status_code == 201, f"Upload evidence: {r.text}"
     artifact_id = r.json()["artifact_id"]
