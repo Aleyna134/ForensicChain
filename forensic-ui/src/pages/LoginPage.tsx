@@ -184,15 +184,8 @@ export default function LoginPage() {
             </div>
 
             {/* Logo */}
-            <div className="absolute top-8 left-8 z-10 flex items-center gap-2.5">
-              <div className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0"
-                   style={{ background: '#0b1e35', border: '1px solid rgba(34,211,238,0.3)' }}>
-                <svg className="w-3.5 h-3.5 text-cyan-400" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-              </div>
+            <div className="absolute top-8 left-8 z-10 flex items-center gap-0">
+              <img src="/fc-logo.svg" alt="ForensicChain" className="w-11 h-11 object-contain flex-shrink-0" />
               <span className="text-white font-semibold text-sm tracking-wide">ForensicChain</span>
             </div>
 
