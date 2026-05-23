@@ -234,8 +234,11 @@ async def create_assignment(
         )
 
     case_result = await db.execute(select(Case).where(Case.id == case_id))
-    if not case_result.scalar_one_or_none():
+    case = case_result.scalar_one_or_none()
+    if not case:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+    if case.status == "CLOSED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot assign to a closed case")
 
     user_result = await db.execute(select(User).where(User.username == body.username))
     user = user_result.scalar_one_or_none()
