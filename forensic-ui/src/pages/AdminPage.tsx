@@ -319,6 +319,11 @@ function AssignmentsModal({
         </div>
 
         {/* Add assignment form */}
+        {c.status === 'CLOSED' && (
+          <p className="mb-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            This case is closed. New assignments are not allowed.
+          </p>
+        )}
         <form onSubmit={handleAssign} className="flex gap-2 flex-wrap items-end">
           <div className="flex-1 min-w-[140px]">
             <label className="block text-[10px] font-bold text-slate-500 tracking-[0.18em] uppercase mb-1">User</label>
@@ -344,7 +349,7 @@ function AssignmentsModal({
                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
                               bg-slate-50 text-slate-500 cursor-default" />
           </div>
-          <button type="submit" disabled={saving || !username}
+          <button type="submit" disabled={saving || !username || c.status === 'CLOSED'}
                   className="px-4 py-2 rounded-lg bg-slate-800 text-sm font-semibold text-white
                              hover:bg-slate-700 disabled:opacity-50 transition-colors whitespace-nowrap">
             {saving ? 'Assigning…' : 'Assign'}

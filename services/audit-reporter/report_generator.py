@@ -52,15 +52,35 @@ async def build_report(
     artifact: dict[str, Any] = await evidence_client.get_artifact(
         artifact_id, actor_id=actor_id, actor_role=actor_role, corr_id=corr_id
     )
-    ledger: dict[str, Any] = await ledger_client.get_proof(
+
+    if "file_size" in artifact:
+        artifact["file_size"] = int(artifact["file_size"])
+
+    case_id: str = artifact.get("case_id") or ""
+
+    ledger: dict[str, Any] | None = await ledger_client.get_proof_optional(
         artifact_id, actor_id=actor_id, actor_role=actor_role, corr_id=corr_id
     )
     timeline: dict[str, Any] = await custody_client.get_timeline(
         artifact_id, actor_id=actor_id, actor_role=actor_role, corr_id=corr_id
     )
 
-    if "file_size" in artifact:
-        artifact["file_size"] = int(artifact["file_size"])
+    # Chain validation and record list are best-effort — failures must not block report delivery.
+    ledger_validation: dict[str, Any] | None = None
+    ledger_records: list[dict[str, Any]] | None = None
+    if case_id:
+        try:
+            ledger_validation = await ledger_client.get_validation(
+                case_id, actor_id=actor_id, actor_role=actor_role, corr_id=corr_id
+            )
+        except Exception:
+            logger.warning("Could not fetch chain validation for case %s; omitting from report", case_id)
+        try:
+            ledger_records = await ledger_client.get_records(
+                case_id, actor_id=actor_id, actor_role=actor_role, corr_id=corr_id
+            )
+        except Exception:
+            logger.warning("Could not fetch ledger records for case %s; omitting from report", case_id)
 
     html_content = _jinja_env.get_template("report.html").render(
         report_id=report_id,
@@ -69,6 +89,8 @@ async def build_report(
         artifact=artifact,
         ledger=ledger,
         timeline=timeline,
+        ledger_validation=ledger_validation,
+        ledger_records=ledger_records,
     )
 
     pdf_bytes: bytes = HTML(string=html_content).write_pdf()
@@ -82,7 +104,6 @@ async def build_report(
     # Failure does not block report delivery — the report_db hash still provides
     # local tamper detection; the ledger entry anchors the report hash in the
     # case-level ledger chain.
-    case_id: str = artifact.get("case_id") or ""
     success, ledger_record_id, err = await append_report_proof_async(
         report_id=report_id,
         case_id=case_id,

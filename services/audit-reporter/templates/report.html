@@ -28,6 +28,16 @@
     .timeline th,
     .timeline td        { padding: 4px 6px; font-size: 8.5pt;
                           word-break: break-all; overflow-wrap: anywhere; }
+    .ledger-chain          { table-layout: fixed; width: 100%; }
+    .ledger-chain col.num  { width: 5%; }
+    .ledger-chain col.type { width: 26%; }
+    .ledger-chain col.art  { width: 13%; }
+    .ledger-chain col.hash { width: 20%; }
+    .ledger-chain col.prev { width: 20%; }
+    .ledger-chain col.lts  { width: 16%; }
+    .ledger-chain th,
+    .ledger-chain td       { padding: 4px 6px; font-size: 8.5pt;
+                             word-break: break-all; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -53,6 +63,7 @@
 </table>
 
 <h2>Integrity Proof</h2>
+{% if ledger %}
 <table>
   <tr><td class="label">Hash Algorithm</td>      <td>{{ ledger.hash_algorithm }}</td></tr>
   <tr><td class="label">Hash Value</td>           <td class="mono">{{ ledger.hash_value }}</td></tr>
@@ -61,6 +72,62 @@
   <tr><td class="label">Signer ID</td>            <td>{{ ledger.signer_id }}</td></tr>
   <tr><td class="label">Ledger Record ID</td>     <td class="mono">{{ ledger.record_id }}</td></tr>
 </table>
+{% else %}
+<p class="invalid">No ledger proof record found for this artifact.</p>
+{% endif %}
+
+<h2>Ledger Chain Integrity</h2>
+{% if ledger_validation %}
+<p>
+  Case chain:
+  {% if ledger_validation.chain_valid %}
+    <span class="valid">VALID</span>
+  {% else %}
+    <span class="invalid">BROKEN</span>
+  {% endif %}
+  &nbsp;&mdash;&nbsp; {{ ledger_validation.checked_records }} record(s) verified
+  {% if ledger_validation.error_message %}
+    &nbsp;&mdash;&nbsp; {{ ledger_validation.error_message }}
+  {% endif %}
+</p>
+{% else %}
+<p style="color:#888;">Chain validation data not available.</p>
+{% endif %}
+
+{% if ledger_records is not none %}
+<h2>Ledger Records (Case Chain)</h2>
+{% if ledger_records %}
+<table class="ledger-chain">
+  <colgroup>
+    <col class="num" /><col class="type" /><col class="art" /><col class="hash" /><col class="prev" /><col class="lts" />
+  </colgroup>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Type</th>
+      <th>Artifact ID</th>
+      <th>Record Hash</th>
+      <th>Prev Hash</th>
+      <th>Timestamp (UTC)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rec in ledger_records %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ rec.record_type }}</td>
+      <td class="mono">{{ rec.artifact_id[:8] }}&hellip;</td>
+      <td class="mono">{{ rec.record_hash[:16] }}&hellip;</td>
+      <td class="mono">{{ rec.previous_record_hash[:16] ~ '…' if rec.previous_record_hash else 'GENESIS' }}</td>
+      <td>{{ rec.created_at[:19].replace('T', ' ') if rec.created_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888;">No ledger records found for this case.</p>
+{% endif %}
+{% endif %}
 
 <h2>Chain of Custody Timeline</h2>
 <p>
