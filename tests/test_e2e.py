@@ -104,7 +104,8 @@ def test_analyst_download(artifact_id, analyst_token):
 # ── 5. Chain-of-custody timeline ─────────────────────────────────────────────
 
 def test_custody_timeline(artifact_id, reviewer_token):
-    # Allow the outbox worker up to 15 s to propagate all events
+    # Allow the outbox worker up to 15 s to propagate all events.
+    # Custody service returns 404 when no events exist yet — treat as "not ready".
     deadline = time.time() + 15
     body = {}
     events = []
@@ -114,6 +115,9 @@ def test_custody_timeline(artifact_id, reviewer_token):
             headers=_auth(reviewer_token),
             timeout=10,
         )
+        if r.status_code == 404:
+            time.sleep(1)
+            continue
         assert r.status_code == 200
         body = r.json()
         events = body.get("events", [])
@@ -243,6 +247,9 @@ def test_report_events_appear_in_custody_timeline(artifact_id, reviewer_token, r
             headers=_auth(reviewer_token),
             timeout=10,
         )
+        if r.status_code == 404:
+            time.sleep(1)
+            continue
         assert r.status_code == 200
         body = r.json()
         event_types = [e["event_type"] for e in body.get("events", [])]
