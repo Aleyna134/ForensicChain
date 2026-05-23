@@ -12,7 +12,7 @@ BASE_URL = f"{GATEWAY}/api"
 
 def test_gateway_health():
     """Gateway exposes a no-auth health endpoint that proxies to evidence-service."""
-    r = requests.get(f"{GATEWAY}/health")
+    r = requests.get(f"{GATEWAY}/health", timeout=10)
     assert r.status_code == 200
 
 
@@ -23,7 +23,7 @@ def test_gateway_health():
     ("reviewer01", "reviewer01"),
 ])
 def test_login_seed_users(username, password):
-    r = requests.post(f"{BASE_URL}/auth/login", json={"username": username, "password": password})
+    r = requests.post(f"{BASE_URL}/auth/login", json={"username": username, "password": password}, timeout=10)
     assert r.status_code == 200
     body = r.json()
     assert "access_token" in body
@@ -31,20 +31,20 @@ def test_login_seed_users(username, password):
 
 
 def test_login_wrong_password():
-    r = requests.post(f"{BASE_URL}/auth/login", json={"username": "admin01", "password": "wrong"})
+    r = requests.post(f"{BASE_URL}/auth/login", json={"username": "admin01", "password": "wrong"}, timeout=10)
     assert r.status_code == 401
 
 
 def test_login_unknown_user():
-    r = requests.post(f"{BASE_URL}/auth/login", json={"username": "nobody", "password": "x"})
+    r = requests.post(f"{BASE_URL}/auth/login", json={"username": "nobody", "password": "x"}, timeout=10)
     assert r.status_code == 401
 
 
 def test_unauthenticated_evidence_returns_401():
-    r = requests.get(f"{BASE_URL}/evidence")
+    r = requests.get(f"{BASE_URL}/evidence", timeout=10)
     assert r.status_code == 401
 
 
 def test_unauthenticated_admin_returns_401():
-    r = requests.get(f"{BASE_URL}/admin/users")
+    r = requests.get(f"{BASE_URL}/admin/users", timeout=10)
     assert r.status_code == 401
