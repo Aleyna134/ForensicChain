@@ -1,9 +1,11 @@
 """
 Negative authorization tests.
 
-All requests should be rejected at the RBAC layer (401 / 403) —
-never reaching domain logic. The conftest fixture provides a real
-artifact_id so tests that need one don't have to make up a UUID.
+Most requests are rejected at the gateway/RBAC layer (401 / 403). Some
+tests intentionally verify domain-level authorization, such as preventing
+an investigator from accessing another user's artifact. The conftest
+fixture provides a real artifact_id so tests that need one don't have to
+make up a UUID.
 
 RBAC summary (from services/auth-service/rbac.py):
   investigator    : upload + own evidence metadata/verify; NO custody, ledger, reports, admin
