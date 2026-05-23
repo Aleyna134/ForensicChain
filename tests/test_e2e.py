@@ -34,7 +34,8 @@ def test_investigator_view_artifact(artifact_id, investigator_token):
     assert r.status_code == 200
     body = r.json()
     assert body["artifact_id"] == artifact_id
-    assert body["status"] in ("PENDING", "INGESTED", "INGESTION_FAILED")
+    # conftest asserted 201 on upload, so hash-sign + ledger succeeded → INGESTED
+    assert body["status"] == "INGESTED"
 
 
 # ── 2. Verify original evidence → VALID ──────────────────────────────────────
@@ -68,6 +69,18 @@ def test_analyst_verify_tampered(artifact_id, analyst_token):
     assert body["signature_valid"] is True
 
 
+# ── 3b. Legal reviewer can also verify (RBAC: legal_reviewer has verify access) ─
+
+def test_reviewer_can_verify_original(artifact_id, reviewer_token):
+    r = requests.post(
+        f"{BASE_URL}/evidence/{artifact_id}/verify",
+        files={"file": ("original.bin", io.BytesIO(EVIDENCE_CONTENT), "application/octet-stream")},
+        headers=_auth(reviewer_token),
+    )
+    assert r.status_code == 200
+    assert r.json()["verification_result"] == "VALID"
+
+
 # ── 4. Download evidence file ─────────────────────────────────────────────────
 
 def test_analyst_download(artifact_id, analyst_token):
@@ -76,7 +89,7 @@ def test_analyst_download(artifact_id, analyst_token):
         headers=_auth(analyst_token),
     )
     assert r.status_code == 200
-    assert len(r.content) > 0
+    assert r.content == EVIDENCE_CONTENT
 
 
 # ── 5. Chain-of-custody timeline ─────────────────────────────────────────────
@@ -84,6 +97,7 @@ def test_analyst_download(artifact_id, analyst_token):
 def test_custody_timeline(artifact_id, reviewer_token):
     # Allow the outbox worker up to 15 s to propagate all events
     deadline = time.time() + 15
+    body = {}
     events = []
     while time.time() < deadline:
         r = requests.get(
@@ -91,9 +105,10 @@ def test_custody_timeline(artifact_id, reviewer_token):
             headers=_auth(reviewer_token),
         )
         assert r.status_code == 200
-        events = r.json().get("events", [])
-        # EvidenceIngested + EvidenceViewed + VerificationRequested×2
-        # + VerificationPassed + VerificationFailed = 6 minimum
+        body = r.json()
+        events = body.get("events", [])
+        # EvidenceIngested + EvidenceViewed + VerificationRequested×3
+        # + VerificationPassed + VerificationFailed×2 = 8 minimum (analyst×2 + reviewer×1 verify)
         if len(events) >= 6:
             break
         time.sleep(1)
@@ -101,6 +116,7 @@ def test_custody_timeline(artifact_id, reviewer_token):
     event_types = [e["event_type"] for e in events]
     assert "EvidenceIngested" in event_types
     assert len(events) >= 6, f"Expected ≥6 custody events, got {len(events)}: {event_types}"
+    assert body.get("chain_valid") is True
 
 
 # ── 6. Ledger chain validation ────────────────────────────────────────────────
@@ -161,7 +177,21 @@ def test_download_report(report_id, reviewer_token):
     assert len(r.content) > 1000
 
 
-# ── 10. List reports for artifact ─────────────────────────────────────────────
+# ── 10. Verify report hash integrity ─────────────────────────────────────────
+
+def test_verify_report(report_id, reviewer_token):
+    r = requests.post(
+        f"{BASE_URL}/reports/{report_id}/verify",
+        headers=_auth(reviewer_token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["report_id"] == report_id
+    assert body["report_valid"] is True
+    assert body["stored_hash"] == body["current_hash"]
+
+
+# ── 11. List reports for artifact ─────────────────────────────────────────────
 
 def test_list_reports_by_artifact(artifact_id, reviewer_token):
     r = requests.get(
@@ -173,3 +203,31 @@ def test_list_reports_by_artifact(artifact_id, reviewer_token):
     assert isinstance(reports, list)
     assert len(reports) >= 1
     assert all("report_id" in rep for rep in reports)
+
+
+# ── 12. Report events propagate to custody timeline ───────────────────────────
+
+def test_report_events_appear_in_custody_timeline(artifact_id, reviewer_token, report_id):
+    # Trigger a fresh download so ReportDownloaded is guaranteed in the timeline
+    r = requests.get(f"{BASE_URL}/reports/{report_id}/download", headers=_auth(reviewer_token))
+    assert r.status_code == 200
+
+    deadline = time.time() + 15
+    event_types: list[str] = []
+    body: dict = {}
+    while time.time() < deadline:
+        r = requests.get(
+            f"{BASE_URL}/custody/{artifact_id}/timeline",
+            headers=_auth(reviewer_token),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        event_types = [e["event_type"] for e in body.get("events", [])]
+        if "ReportGenerated" in event_types and "ReportDownloaded" in event_types:
+            assert body["chain_valid"] is True
+            return
+        time.sleep(1)
+
+    raise AssertionError(
+        f"ReportGenerated/ReportDownloaded not in custody timeline after 15s: {event_types}"
+    )

@@ -108,12 +108,44 @@ def test_investigator_cannot_access_ledger_403(investigator_token):
     assert r.status_code == 403
 
 
+# ── Forensic analyst cannot access ledger ────────────────────────────────────
+
+def test_analyst_cannot_access_ledger_403(analyst_token):
+    r = requests.get(
+        f"{BASE_URL}/ledger/validate/CASE-2099-001",
+        headers=_auth(analyst_token),
+    )
+    assert r.status_code == 403
+
+
 # ── Investigator cannot generate reports ─────────────────────────────────────
 
 def test_investigator_cannot_generate_report_403(artifact_id, investigator_token):
     r = requests.post(
         f"{BASE_URL}/reports/{artifact_id}",
         headers=_auth(investigator_token),
+    )
+    assert r.status_code == 403
+
+
+# ── Forensic analyst cannot generate reports ──────────────────────────────────
+
+def test_analyst_cannot_generate_report_403(artifact_id, analyst_token):
+    r = requests.post(
+        f"{BASE_URL}/reports/{artifact_id}",
+        headers=_auth(analyst_token),
+    )
+    assert r.status_code == 403
+
+
+# ── Legal reviewer cannot upload evidence ─────────────────────────────────────
+
+def test_reviewer_cannot_upload_evidence_403(reviewer_token):
+    r = requests.post(
+        f"{BASE_URL}/evidence",
+        data={"case_id": "CASE-2099-001", "title": "t", "artifact_type": "Other"},
+        files={"file": ("f.bin", io.BytesIO(b"x"), "application/octet-stream")},
+        headers=_auth(reviewer_token),
     )
     assert r.status_code == 403
 
