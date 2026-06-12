@@ -15,7 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/artifacts',        label: 'Evidence List',    roles: ['forensic_analyst'] },
   { to: '/artifacts',        label: 'Evidence List',    roles: ['legal_reviewer'] },
   { to: '/ledger',           label: 'Ledger Chain',     roles: ['legal_reviewer'] },
-  { to: '/admin/users',      label: 'User Management',  roles: ['admin'] },
+  { to: '/admin/users',      label: 'Management Panel',  roles: ['admin'] },
 ]
 
 interface Props {
