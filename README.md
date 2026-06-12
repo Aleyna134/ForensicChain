@@ -1,6 +1,6 @@
 # ForensicChain
 
-A distributed forensic evidence management system built on a microservices architecture. Provides cryptographically verifiable evidence ingestion, immutable chain-of-custody tracking, and legally admissible PDF report generation.
+A forensic evidence management system built on a microservices architecture. Provides cryptographically verifiable evidence ingestion, immutable chain-of-custody tracking, and legally admissible PDF report generation.
 
 ---
 
