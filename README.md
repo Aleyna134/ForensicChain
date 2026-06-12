@@ -125,11 +125,13 @@ Generates cryptographically verifiable PDF forensic reports.
 
 ### API Gateway (`services/gateway/`)
 
-Nginx reverse proxy — sole public entry point on port 8080.
+Nginx reverse proxy — sole public application entry point on port 8080.
 
 - Every protected API request passes through `auth_request` to auth-service; returns `401`/`403` on failure.
 - Injects `X-User-Id`, `X-User-Role`, `X-Correlation-Id` headers; downstream services trust these and do not re-decode the JWT.
 - `client_max_body_size 100M` for evidence file uploads.
+
+> **Note:** The RabbitMQ Management UI (`http://localhost:15672`) is exposed for local development and monitoring only. It should be disabled before any shared or production deployment.
 
 ---
 
@@ -195,10 +197,10 @@ openssl rsa -in keys/private_key.pem -pubout -out keys/public_key.pem
 
 ## Development Tokens
 
-`scripts/generate_demo_tokens.py` is a development/debug utility that generates short-lived JWT tokens for all four roles. It is **not** a substitute for the normal login flow (`POST /auth/login`) — use it only when you need a valid token quickly for API testing without going through the auth service.
+`scripts/generate_demo_tokens.py` is a development/debug utility that generates short-lived JWT tokens for all four roles. It is **not** a substitute for the normal login flow (`POST /api/auth/login`) — use it only when you need a valid token quickly for API testing without going through the auth service.
 
 The script must use the same `JWT_SECRET` as the auth service:
 
 ```bash
-JWT_SECRET=secret python scripts/generate_demo_tokens.py
+JWT_SECRET=your-secret python scripts/generate_demo_tokens.py
 ```
